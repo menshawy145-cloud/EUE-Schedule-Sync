@@ -45,11 +45,9 @@ export const api = {
     createBatch: (courses) => request('/schedules/batch', { method: 'POST', body: JSON.stringify({ courses }) }),
     toggleCancel: (id) => request(`/schedules/${id}/toggle-cancel`, { method: 'PUT' }),
     clearAll: () => request('/schedules/clear-all', { method: 'DELETE' }),
-    uploadTimetableImage: (fileObj, ocrText = '', geminiApiKey = '') => {
+    uploadTimetableImage: (fileObj) => {
       const formData = new FormData();
       if (fileObj) formData.append('file', fileObj);
-      if (ocrText) formData.append('ocr_text', ocrText);
-      if (geminiApiKey) formData.append('gemini_api_key', geminiApiKey);
       return request('/schedules/upload-image', { method: 'POST', body: formData });
     },
     getFriendOverlap: (friendId) => request(`/schedules/friends/${friendId}/overlap`),

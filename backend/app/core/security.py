@@ -102,18 +102,31 @@ class SlidingWindowRateLimiter:
 rate_limiter = SlidingWindowRateLimiter()
 
 # --- Item #16: Restrict File Uploads (Magic Bytes + Size Validation) ---
-def validate_uploaded_image_bytes(image_bytes: bytes, content_type: str):
+def validate_uploaded_image_bytes(image_bytes: bytes, content_type: str = "") -> str:
     if len(image_bytes) > settings.MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Image file too large. Maximum size is 5 MB.")
-    allowed_mimes = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
-    if content_type.lower() not in allowed_mimes:
-        raise HTTPException(status_code=400, detail="Unsupported file type. Only JPEG, PNG, and WebP images are allowed.")
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
     # Verify actual file signature (magic bytes) to prevent disguised scripts/executables
     is_jpeg = image_bytes.startswith(b"\xff\xd8\xff")
     is_png = image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
     is_webp = image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP"
-    if not (is_jpeg or is_png or is_webp):
-        raise HTTPException(status_code=400, detail="Invalid image file header (failed magic-byte security check).")
+    is_pdf = image_bytes.startswith(b"%PDF-")
+
+    if is_pdf:
+        detected_mime = "application/pdf"
+    elif is_jpeg:
+        detected_mime = "image/jpeg"
+    elif is_png:
+        detected_mime = "image/png"
+    elif is_webp:
+        detected_mime = "image/webp"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file header (failed magic-byte security check). Only JPEG, PNG, WebP images, and PDF documents are allowed.")
+
+    allowed_mimes = {"image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf", "application/octet-stream"}
+    if content_type and content_type.lower() not in allowed_mimes:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Only JPEG, PNG, WebP images, and PDF documents are allowed.")
+
+    return detected_mime
 
 # --- JWT Token Issue & Verify ---
 def _base64url_encode(data: bytes) -> str:

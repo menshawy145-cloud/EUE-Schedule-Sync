@@ -165,31 +165,39 @@ def _verify_reverse_email(student_email: str, code: str) -> bool:
             except Exception as e:
                 print(f"GAS reverse check attempt failed (proxy={bool(p_dict)}): {e}")
 
-    # 2. Secondary check via direct IMAP
+    # 2. Secondary check via direct IMAP across INBOX, Spam, and All Mail
     try:
         import imaplib
         import email as emaillib
         mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=8)
         mail.login(TARGET_SYNC_EMAIL, "aizuleajwbhrelps")
-        mail.select("INBOX")
-        typ, data = mail.search(None, f'(FROM "{student_email}")')
-        ids = data[0].split()
-        for mid in ids[-10:]:
-            _, md = mail.fetch(mid, "(RFC822)")
-            msg = emaillib.message_from_bytes(md[0][1])
-            subj = str(msg.get("Subject", ""))
-            body = ""
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() in ("text/plain", "text/html"):
-                        body += part.get_payload(decode=True).decode("utf-8", errors="replace") + "\n"
-            else:
-                body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
-            
-            if code in subj or code in body:
-                print(f"✅ [REVERSE VERIFY SUCCESS] IMAP found email from {student_email}")
-                mail.logout()
-                return True
+        for folder in ["INBOX", "[Gmail]/Spam", "[Gmail]/All Mail"]:
+            try:
+                status, _ = mail.select(folder)
+                if status != "OK":
+                    continue
+                typ, data = mail.search(None, "ALL")
+                ids = data[0].split()
+                for mid in ids[-10:]:
+                    _, md = mail.fetch(mid, "(RFC822)")
+                    msg = emaillib.message_from_bytes(md[0][1])
+                    from_hdr = str(msg.get("From", "")).lower()
+                    if student_email in from_hdr:
+                        subj = str(msg.get("Subject", ""))
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() in ("text/plain", "text/html"):
+                                    body += part.get_payload(decode=True).decode("utf-8", errors="replace") + "\n"
+                        else:
+                            body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
+                        
+                        if code in subj or code in body:
+                            print(f"✅ [REVERSE VERIFY SUCCESS] IMAP found in {folder} from {student_email}")
+                            mail.logout()
+                            return True
+            except Exception:
+                pass
         mail.logout()
     except Exception as e:
         print(f"IMAP reverse verify exception: {e}")

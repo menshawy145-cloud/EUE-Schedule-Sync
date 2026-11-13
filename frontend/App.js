@@ -13,7 +13,7 @@ import { FriendScheduleScreen } from './src/screens/FriendScheduleScreen';
 import { colors } from './src/styles/theme';
 
 // Set to true to close public student access during maintenance / pre-launch
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();

@@ -26,84 +26,6 @@ const EUE_PERIODS = [
   { label: 'P6 (4:30 PM - 6:00 PM)', start: '16:30:00', end: '18:00:00' },
 ];
 
-// Helper: Cluster 1D line indices
-function cluster1D(indices, minGap = 4) {
-  if (!indices || indices.length === 0) return [];
-  const clusters = [[indices[0]]];
-  for (let i = 1; i < indices.length; i++) {
-    const idx = indices[i];
-    const lastCluster = clusters[clusters.length - 1];
-    if (idx - lastCluster[lastCluster.length - 1] <= minGap) {
-      lastCluster.push(idx);
-    } else {
-      clusters.push([idx]);
-    }
-  }
-  return clusters.map((c) => Math.round(c.reduce((a, b) => a + b, 0) / c.length));
-}
-
-// Helper: Parse OCR text of a single timetable cell into { code, name, room }
-function parseSingleCellText(rawText, colIdx) {
-  const clean = (rawText || '').replace(/[|\r]/g, ' ').trim();
-  const lower = clean.toLowerCase();
-
-  // Detect class type
-  let classType = '';
-  if (lower.includes('tut') || lower.includes('towi') || lower.includes('tate')) classType = ' (Tutorial)';
-  else if (lower.includes('lab') || lower.includes('iak')) classType = ' (Lab)';
-  else if (lower.includes('lec') || lower.includes('lato') || lower.includes('lone') || lower.includes('lowe')) classType = ' (Lecture)';
-
-  // Detect room number (e.g. Room A-412, Lab A-107, Room A-401, Room A-410)
-  let room = 'Room A-412';
-  const roomMatch = clean.match(/(?:Room|Lab|Hall|Com|fam|tae|fore|Bere|wen|mew|fae)?\s*([A-Z]?-?\s*[1-4]\d{2})/i);
-  if (roomMatch) {
-    const digits = roomMatch[1].replace(/[^0-9]/g, '');
-    if (digits === '107' || digits === '121') room = `Lab A-${digits}`;
-    else if (digits.length === 3) room = `Room A-${digits}`;
-  } else if (lower.includes('107')) {
-    room = 'Lab A-107';
-  } else if (lower.includes('121') || lower.includes('taca')) {
-    room = 'Lab A-121';
-  } else if (lower.includes('410')) {
-    room = 'Room A-410';
-  } else if (lower.includes('401') || lower.includes('eae') || lower.includes('er')) {
-    room = 'Room A-401';
-  }
-
-  // Detect course code & name from OCR text or fuzzy EUE keywords
-  let code = 'COURSE';
-  let name = 'Scheduled Class';
-
-  const codeRegex = clean.match(/\b([A-Z]{2,4})\s*([0-9OIl]{3,4})\b/i);
-  if (codeRegex) {
-    const prefix = codeRegex[1].toUpperCase();
-    const digits = codeRegex[2].replace(/O/gi, '0').replace(/[Il]/g, '1');
-    code = `${prefix}${digits}`;
-  }
-
-  if (lower.includes('bus') || lower.includes('manag') || lower.includes('meme') || lower.includes('ears') || lower.includes('pama') || lower.includes('pome') || code === 'FP0010') {
-    code = 'FP0010';
-    name = 'Business and Management' + (classType || ' (Lecture)');
-  } else if (lower.includes('econ') || lower.includes('bieem') || lower.includes('foce') || lower.includes('towne') || lower.includes('hoe') || code === 'FP0012') {
-    code = 'FP0012';
-    name = 'Economics' + (classType || ' (Lecture)');
-  } else if (lower.includes('math') || lower.includes('metr') || lower.includes('mbna') || lower.includes('manea') || code === 'FP0011') {
-    code = 'FP0011';
-    name = 'Mathematics' + (classType || ' (Lecture)');
-  } else if (lower.includes('comp') || lower.includes('came') || lower.includes('eeer') || lower.includes('cooper') || lower.includes('ower') || room.startsWith('Lab')) {
-    code = 'FP0014';
-    name = 'Computer Science' + (classType || (room.startsWith('Lab') ? ' (Lab)' : ' (Lecture)'));
-  } else if (lower.includes('stat') || lower.includes('eumw') || lower.includes('uaan') || lower.includes('mena') || lower.includes('oon') || code === 'FP0014') {
-    code = 'FP0014';
-    name = 'Statistics' + (classType || ' (Lecture)');
-  } else if (clean.length > 3) {
-    const firstLine = clean.split('\n')[0].trim();
-    if (firstLine.length > 2) name = firstLine + classType;
-  }
-
-  return { code, name, room };
-}
-
 export const ScheduleScreen = () => {
   const [selectedDay, setSelectedDay] = useState('Saturday');
   const [schedules, setSchedules] = useState([]);
@@ -117,11 +39,13 @@ export const ScheduleScreen = () => {
   const [endTime, setEndTime] = useState('10:00');
   const [roomNumber, setRoomNumber] = useState('Room A-412');
 
-  // Real Photo Scanner Modal
+  // Timetable AI Scanner Modal
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanStatusText, setScanStatusText] = useState('');
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
+  const [selectedFileName, setSelectedFileName] = useState('');
+  const [isPdf, setIsPdf] = useState(false);
   const [detectedCourses, setDetectedCourses] = useState([]);
 
   const fetchSchedules = useCallback(async () => {
@@ -140,20 +64,33 @@ export const ScheduleScreen = () => {
     fetchSchedules();
   }, [fetchSchedules]);
 
-  // Open Real File Picker on Web / Mobile
-  const handlePickTimetablePhoto = () => {
+  // Open Real File Picker on Web / Mobile (Accepts Images and PDFs)
+  const handlePickTimetableFile = () => {
     if (Platform.OS === 'web') {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*';
+      input.accept = 'image/*,.pdf,application/pdf';
       input.onchange = async (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-        const previewUrl = URL.createObjectURL(file);
-        setSelectedImagePreview(previewUrl);
+
+        const isPdfFile = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        setIsPdf(isPdfFile);
+        setSelectedFileName(file.name);
+
+        if (!isPdfFile) {
+          try {
+            setSelectedImagePreview(URL.createObjectURL(file));
+          } catch (_) {
+            setSelectedImagePreview(null);
+          }
+        } else {
+          setSelectedImagePreview(null);
+        }
+
         setDetectedCourses([]);
         setScanModalVisible(true);
-        await analyzeTimetableGridOnCanvas(previewUrl);
+        await parseTimetableWithBackendAI(file);
       };
       input.click();
     } else {
@@ -161,251 +98,21 @@ export const ScheduleScreen = () => {
     }
   };
 
-  // HTML5 Canvas 2D Timetable Grid Detector + Per-Cell OCR
-  const analyzeTimetableGridOnCanvas = async (imageUrl) => {
+  // Call Backend Gemini Vision Parser
+  const parseTimetableWithBackendAI = async (file) => {
     try {
       setScanning(true);
-      setScanStatusText('Step 1/2: Detecting timetable grid rows, periods, and occupied cells...');
-
-      const img = new window.Image();
-      img.crossOrigin = 'Anonymous';
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imageUrl;
-      });
-
-      const canvas = document.createElement('canvas');
-      const W = img.naturalWidth || img.width;
-      const H = img.naturalHeight || img.height;
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, W, H);
-
-      const imgData = ctx.getImageData(0, 0, W, H).data;
-
-      // Build 2D grayscale and RGB arrays
-      const gray = new Float32Array(W * H);
-      const greenDiff = new Float32Array(W * H);
-      for (let i = 0; i < W * H; i++) {
-        const r = imgData[i * 4];
-        const g = imgData[i * 4 + 1];
-        const b = imgData[i * 4 + 2];
-        gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
-        greenDiff[i] = g - r;
+      setScanStatusText('Reading your timetable with AI...');
+      const courses = await api.schedules.uploadTimetableImage(file);
+      if (Array.isArray(courses) && courses.length > 0) {
+        setDetectedCourses(courses);
+        setScanStatusText(`✅ Successfully read ${courses.length} courses! Review and edit any field below before saving.`);
+      } else {
+        setDetectedCourses([]);
+        setScanStatusText('No classes detected. You can add course rows manually below.');
       }
-
-      // 1. Find white paper vertical bounds (rows where >35% of pixels have brightness > 190)
-      let yTop = 0;
-      let yBot = H - 1;
-      const brightRows = [];
-      for (let y = 0; y < H; y++) {
-        let count = 0;
-        for (let x = 0; x < W; x++) {
-          if (gray[y * W + x] > 190) count++;
-        }
-        if (count / W > 0.35) brightRows.push(y);
-      }
-      if (brightRows.length > 10) {
-        yTop = brightRows[0];
-        yBot = brightRows[brightRows.length - 1];
-      }
-      const pH = yBot - yTop + 1;
-
-      // 2. Find horizontal grid lines inside paper (rows where >42% of pixels are dark < 225)
-      const hCandidates = [];
-      for (let y = 0; y < pH; y++) {
-        let darkCount = 0;
-        const absY = yTop + y;
-        for (let x = 0; x < W; x++) {
-          if (gray[absY * W + x] < 225) darkCount++;
-        }
-        if (darkCount / W > 0.42) hCandidates.push(y);
-      }
-      const minGapY = Math.max(3, Math.round(pH * 0.01));
-      const hLines = cluster1D(hCandidates, minGapY);
-
-      if (hLines.length < 6) {
-        setScanStatusText('Could not find standard grid lines. You can add courses manually below.');
-        setScanning(false);
-        return;
-      }
-
-      const tTop = hLines[0];
-      const tBot = hLines[hLines.length - 1];
-      const tHeight = tBot - tTop;
-
-      // 3. Find vertical grid lines across the table height
-      const vCandidates = [];
-      for (let x = 0; x < W; x++) {
-        let darkCount = 0;
-        for (let y = tTop; y <= tBot; y++) {
-          if (gray[(yTop + y) * W + x] < 225) darkCount++;
-        }
-        if (darkCount / (tHeight + 1) > 0.38) vCandidates.push(x);
-      }
-      const minGapX = Math.max(4, Math.round(W * 0.012));
-      const vLines = cluster1D(vCandidates, minGapX);
-
-      // The last 6 horizontal bands of the EUE table correspond to Saturday..Thursday
-      // Check if the last band is Thursday (very thin Day Off row) or Wednesday
-      const numBands = hLines.length - 1;
-      const startBand = Math.max(0, numBands - 6);
-      const dayBands = [];
-      for (let i = startBand; i < numBands; i++) {
-        dayBands.push([hLines[i], hLines[i + 1]]);
-      }
-
-      const dayNames = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-      const periodDefs = [
-        { start: '08:30:00', end: '10:00:00' }, // Col 1: P1
-        { start: '10:00:00', end: '11:30:00' }, // Col 2: P2
-        { start: '11:30:00', end: '13:00:00' }, // Col 3: P3
-        null,                                   // Col 4: Assembly
-        { start: '13:30:00', end: '15:00:00' }, // Col 5: P4
-        { start: '15:00:00', end: '16:30:00' }, // Col 6: P5
-        { start: '11:30:00', end: '13:00:00' }, // Col 7: Afternoon P1
-        null,                                   // Col 8: Afternoon Assembly
-        { start: '13:30:00', end: '15:00:00' }, // Col 9: Afternoon P2
-        { start: '15:00:00', end: '16:30:00' }, // Col 10: Afternoon P3
-        { start: '16:30:00', end: '18:00:00' }, // Col 11: Afternoon P4
-      ];
-
-      // Column intervals after the Day column (skip vLines[0]..vLines[1])
-      const colIntervals = [];
-      for (let i = 1; i < vLines.length - 1; i++) {
-        colIntervals.push([vLines[i], vLines[i + 1]]);
-      }
-
-      const occupiedCells = [];
-      for (let dIdx = 0; dIdx < dayBands.length; dIdx++) {
-        const [r0, r1] = dayBands[dIdx];
-        const rowH = r1 - r0;
-        if (rowH < tHeight * 0.06) continue; // Skip thin "Day off" row
-
-        const dayName = dayNames[dIdx] || 'Monday';
-
-        for (let cIdx = 0; cIdx < colIntervals.length; cIdx++) {
-          if (cIdx >= periodDefs.length || !periodDefs[cIdx]) continue;
-          const [c0, c1] = colIntervals[cIdx];
-          const colW = c1 - c0;
-
-          const padY = Math.max(2, Math.round(rowH * 0.12));
-          const padX = Math.max(2, Math.round(colW * 0.10));
-
-          let darkPixels = 0;
-          let greenSum = 0;
-          let totalPixels = 0;
-
-          for (let y = r0 + padY; y < r1 - padY; y++) {
-            const absY = yTop + y;
-            for (let x = c0 + padX; x < c1 - padX; x++) {
-              const idx = absY * W + x;
-              if (gray[idx] < 165) darkPixels++;
-              greenSum += greenDiff[idx];
-              totalPixels++;
-            }
-          }
-
-          if (totalPixels === 0) continue;
-          const darkRatio = darkPixels / totalPixels;
-          const avgGreenDiff = greenSum / totalPixels;
-
-          // Skip green shaded assembly/day-off cells
-          if (avgGreenDiff > 6.5) continue;
-
-          // If cell has dark text pixels (> 1.8% density), it is an active scheduled class!
-          if (darkRatio > 0.018) {
-            occupiedCells.push({
-              day_of_week: dayName,
-              start_time: periodDefs[cIdx].start,
-              end_time: periodDefs[cIdx].end,
-              colIdx: cIdx,
-              cropBox: {
-                x: c0 + 2,
-                y: yTop + r0 + 2,
-                w: Math.max(10, colW - 4),
-                h: Math.max(10, rowH - 4),
-              },
-            });
-          }
-        }
-      }
-
-      if (occupiedCells.length === 0) {
-        setScanStatusText('No occupied class cells detected. You can add rows manually below.');
-        setScanning(false);
-        return;
-      }
-
-      // Load Tesseract.js to OCR each occupied cell individually
-      setScanStatusText(`Found ${occupiedCells.length} scheduled classes! Reading course names & rooms...`);
-      let tesseractReady = false;
-      try {
-        if (!window.Tesseract) {
-          await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-          });
-        }
-        tesseractReady = Boolean(window.Tesseract);
-      } catch (e) {
-        tesseractReady = false;
-      }
-
-      const finalCourses = [];
-      for (let i = 0; i < occupiedCells.length; i++) {
-        const cellInfo = occupiedCells[i];
-        setScanStatusText(`Reading cell ${i + 1} of ${occupiedCells.length} (${cellInfo.day_of_week} ${cellInfo.start_time.slice(0, 5)})...`);
-
-        let cellText = '';
-        if (tesseractReady) {
-          try {
-            // Upscale cropped cell 4x on a mini canvas for crisp OCR
-            const cellCanvas = document.createElement('canvas');
-            const scale = 4;
-            cellCanvas.width = cellInfo.cropBox.w * scale;
-            cellCanvas.height = cellInfo.cropBox.h * scale;
-            const cellCtx = cellCanvas.getContext('2d');
-            cellCtx.imageSmoothingEnabled = true;
-            cellCtx.drawImage(
-              canvas,
-              cellInfo.cropBox.x,
-              cellInfo.cropBox.y,
-              cellInfo.cropBox.w,
-              cellInfo.cropBox.h,
-              0,
-              0,
-              cellCanvas.width,
-              cellCanvas.height
-            );
-            const dataUrl = cellCanvas.toDataURL('image/png');
-            const ocrRes = await window.Tesseract.recognize(dataUrl, 'eng');
-            cellText = ocrRes?.data?.text || '';
-          } catch (e) {
-            cellText = '';
-          }
-        }
-
-        const { code, name, room } = parseSingleCellText(cellText, cellInfo.colIdx);
-        finalCourses.push({
-          course_code: code,
-          course_name: name,
-          day_of_week: cellInfo.day_of_week,
-          start_time: cellInfo.start_time,
-          end_time: cellInfo.end_time,
-          room_number: room,
-        });
-      }
-
-      setDetectedCourses(finalCourses);
-      setScanStatusText(`✅ Automatically detected ${finalCourses.length} classes from your timetable grid! Review or edit any field below before saving.`);
     } catch (err) {
-      setScanStatusText('Error analyzing timetable grid: ' + err.message);
+      setScanStatusText('Error reading timetable: ' + (err.message || 'Server error'));
     } finally {
       setScanning(false);
     }
@@ -506,8 +213,8 @@ export const ScheduleScreen = () => {
     <View style={styles.container}>
       {/* Top Action Bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.scanBtn} onPress={handlePickTimetablePhoto}>
-          <Text style={styles.scanBtnText}>📸 Upload Timetable Photo</Text>
+        <TouchableOpacity style={styles.scanBtn} onPress={handlePickTimetableFile}>
+          <Text style={styles.scanBtnText}>📸 Upload Timetable (Photo / PDF)</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Text style={styles.addBtnText}>+ Add Course</Text>
@@ -543,7 +250,7 @@ export const ScheduleScreen = () => {
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>🏠 No classes on {selectedDay} (Not coming to campus / Day Off)</Text>
             <Text style={styles.emptySubtitle}>
-              Click "📸 Upload Timetable Photo" to select your own schedule image from your computer or phone, or click "+ Add Course".
+              Click "📸 Upload Timetable (Photo / PDF)" to select your schedule image or PDF from your computer or phone, or click "+ Add Course".
             </Text>
           </View>
         ) : (
@@ -558,18 +265,18 @@ export const ScheduleScreen = () => {
         )}
       </ScrollView>
 
-      {/* Modal: Real Photo Upload, Preview & Editable Courses */}
+      {/* Modal: Timetable Upload (Image/PDF), Preview & Editable Courses */}
       <Modal visible={scanModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.scanModalContent}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>📸 Scan Your Timetable Photo</Text>
-              <TouchableOpacity onPress={handlePickTimetablePhoto} style={styles.reuploadBtn}>
-                <Text style={styles.reuploadBtnText}>Choose Another Photo</Text>
+              <Text style={styles.modalTitle}>📄 Timetable Import</Text>
+              <TouchableOpacity onPress={handlePickTimetableFile} style={styles.reuploadBtn}>
+                <Text style={styles.reuploadBtnText}>Choose Another File</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Uploaded Image Preview */}
+            {/* Uploaded Image or PDF Preview */}
             {selectedImagePreview && (
               <View style={styles.previewImageContainer}>
                 <Image
@@ -577,6 +284,11 @@ export const ScheduleScreen = () => {
                   style={styles.previewImage}
                   resizeMode="contain"
                 />
+              </View>
+            )}
+            {isPdf && (
+              <View style={styles.pdfBadge}>
+                <Text style={styles.pdfBadgeText}>📄 {selectedFileName || 'PDF Timetable Document'}</Text>
               </View>
             )}
 
@@ -800,6 +512,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   previewImage: { width: '100%', height: '100%' },
+  pdfBadge: {
+    padding: 16,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    marginVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  pdfBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+  },
   scanSubtitle: { fontSize: 12, color: colors.primary, fontWeight: '600', marginBottom: 8 },
   editableRow: {
     backgroundColor: colors.inputBg,
