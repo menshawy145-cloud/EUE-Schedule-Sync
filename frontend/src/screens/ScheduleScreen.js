@@ -109,10 +109,11 @@ export const ScheduleScreen = () => {
         setScanStatusText(`✅ Successfully read ${courses.length} courses! Review and edit any field below before saving.`);
       } else {
         setDetectedCourses([]);
-        setScanStatusText('No classes detected. You can add course rows manually below.');
+        setScanStatusText("We couldn't read this file clearly. Please upload a clearer photo (well-lit, straight, not blurry) or upload the original PDF file directly.");
       }
     } catch (err) {
-      setScanStatusText('Error reading timetable: ' + (err.message || 'Server error'));
+      setDetectedCourses([]);
+      setScanStatusText("We couldn't read this file clearly. Please upload a clearer photo (well-lit, straight, not blurry) or upload the original PDF file directly.");
     } finally {
       setScanning(false);
     }
@@ -250,7 +251,7 @@ export const ScheduleScreen = () => {
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>🏠 No classes on {selectedDay} (Not coming to campus / Day Off)</Text>
             <Text style={styles.emptySubtitle}>
-              Click "📸 Upload Timetable (Photo / PDF)" to select your schedule image or PDF from your computer or phone, or click "+ Add Course".
+              Click "📸 Upload Timetable (Photo / PDF)" to select your schedule image or PDF. Please upload a clear, well-lit photo or the original PDF file of your timetable.
             </Text>
           </View>
         ) : (
@@ -274,6 +275,11 @@ export const ScheduleScreen = () => {
               <TouchableOpacity onPress={handlePickTimetableFile} style={styles.reuploadBtn}>
                 <Text style={styles.reuploadBtnText}>Choose Another File</Text>
               </TouchableOpacity>
+            </View>
+
+            {/* Quality Tip Banner */}
+            <View style={styles.tipBox}>
+              <Text style={styles.tipText}>💡 Please upload a clear, well-lit photo or the original PDF file of your timetable.</Text>
             </View>
 
             {/* Uploaded Image or PDF Preview */}
@@ -502,6 +508,20 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   reuploadBtn: { backgroundColor: colors.inputBg, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
   reuploadBtnText: { fontSize: 11, fontWeight: '600', color: colors.primary },
+  tipBox: {
+    backgroundColor: '#EFF6FF',
+    borderLeftWidth: 3,
+    borderLeftColor: '#3B82F6',
+    padding: 10,
+    borderRadius: 8,
+    marginVertical: 6,
+  },
+  tipText: {
+    fontSize: 12,
+    color: '#1E40AF',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   previewImageContainer: {
     height: 140,
     backgroundColor: '#0F172A',

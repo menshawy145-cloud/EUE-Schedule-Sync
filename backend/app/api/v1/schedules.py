@@ -33,6 +33,77 @@ from app.crud.crud_friendship import are_friends
 
 router = APIRouter(prefix="/schedules", tags=["Schedules"])
 
+def generate_course_code_from_name(course_name: str) -> str:
+    """
+    Auto-generate a clean 2-6 letter uppercase code from course name initials.
+    e.g. 'Web Development (Mohamed Seif)' -> 'WD'
+         'How Computers Work (Jana Ayman)' -> 'HCW'
+         'Discrete Mathematics (Hosam Hassan)' -> 'DM'
+         'Introduction to Programming I (Nouran Ali)' -> 'ITP1'
+    """
+    if not course_name:
+        return "EUE01"
+    cleaned = re.sub(r"\(.*?\)", "", course_name).strip()
+    if not cleaned:
+        cleaned = course_name.strip()
+    cleaned = re.sub(r"\bIV\b", "4", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bIII\b", "3", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bII\b", "2", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bI\b", "1", cleaned, flags=re.IGNORECASE)
+    ignore_words = {"and", "of", "in", "for", "on", "with", "at", "by", "from", "&"}
+    words = [w for w in re.split(r"[\s\-_/]+", cleaned) if w and w.lower() not in ignore_words]
+    initials = ""
+    for w in words:
+        alphanum = re.sub(r"[^A-Za-z0-9]", "", w)
+        if alphanum:
+            if alphanum.isdigit():
+                initials += alphanum
+            else:
+                initials += alphanum[0].upper()
+                if alphanum[-1].isdigit():
+                    initials += alphanum[-1]
+    if len(initials) < 2:
+        first_word = re.sub(r"[^A-Za-z0-9]", "", words[0]) if words else "CS"
+        initials = (first_word[:4]).upper()
+        if len(initials) < 2:
+            initials = (initials + "01")[:4]
+    return initials[:6].upper()
+
+def normalize_time_str(time_str: str) -> str:
+    """Normalize any time format (e.g. '8:30', '08:30:00', '1:30 PM', '13:30') to 24-hr 'HH:MM:00'."""
+    if not time_str:
+        return "08:30:00"
+    cleaned = str(time_str).strip().upper()
+    is_pm = "PM" in cleaned
+    is_am = "AM" in cleaned
+    cleaned = re.sub(r"[^0-9:]", "", cleaned)
+    parts = cleaned.split(":")
+    if len(parts) >= 2:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        if is_pm and hour < 12:
+            hour += 12
+        elif is_am and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute:02d}:00"
+    return "08:30:00"
+
+def normalize_day_str(day_str: str) -> str:
+    """Normalize day string to full capitalized English weekday."""
+    valid_days = {
+        "sat": "Saturday", "saturday": "Saturday",
+        "sun": "Sunday", "sunday": "Sunday",
+        "mon": "Monday", "monday": "Monday",
+        "tue": "Tuesday", "tues": "Tuesday", "tuesday": "Tuesday",
+        "wed": "Wednesday", "wednesday": "Wednesday",
+        "thu": "Thursday", "thur": "Thursday", "thurs": "Thursday", "thursday": "Thursday",
+        "fri": "Friday", "friday": "Friday"
+    }
+    if not day_str:
+        return "Monday"
+    key = re.sub(r"[^A-Za-z]", "", str(day_str)).strip().lower()
+    return valid_days.get(key, "Monday")
+
 TIMETABLE_PROMPT = """You are an expert university timetable extractor for European Universities in Egypt (EUE).
 Extract ALL scheduled classes from the uploaded timetable image or PDF document and return a valid JSON array of course objects.
 
@@ -47,18 +118,19 @@ Supported EUE Timetable Formats:
      * P5: 15:00:00 - 16:30:00
      * P6: 16:30:00 - 18:00:00
    - Course codes typically look like FP0010, FP0012, FP0014, FP0011.
-   - Subjects include Business and Management, Economics, Mathematics, Computer Science, Statistics, etc.
 
 2. University of London (UoL CS FET - Faculty of Engineering & Technology):
-   - 90-minute periods with time column/headers:
+   - Grid has 6 column period headers:
      * 8:30 -> 08:30:00 to 10:00:00
      * 10:00 -> 10:00:00 to 11:30:00
      * 11:30 -> 11:30:00 to 13:00:00
      * 13:30 -> 13:30:00 to 15:00:00
      * 15:00 -> 15:00:00 to 16:30:00
      * 16:30 -> 16:30:00 to 18:00:00
-   - Occupied cells are dark-colored with white text.
-   - Empty/free cells contain dashes like "---". Ignore empty cells!
+   - Occupied cells are dark-colored boxes with white text containing the course title, instructor, and room (e.g. 'Web Development (Mohamed Seif) | A 325 Lab').
+   - MERGED DOUBLE-WIDTH CELLS: A single course cell may span across two consecutive time slots (e.g., spanning 8:30 and 10:00 = 08:30:00 to 11:30:00). Extract merged cells as a single course with their full combined duration!
+   - Empty/free cells contain dashes like '---'. Do not extract empty cells!
+   - Course codes: UoL CS FET timetable cells often show ONLY the course title (e.g. 'Web Development', 'How Computers Work', 'Discrete Mathematics', 'Introduction to Programming I') without a separate alphanumeric code. For these, auto-generate the uppercase initials as the course_code (e.g., 'WD', 'HCW', 'DM', 'ITP1'). NEVER leave course_code empty or null!
 
 3. UCLan Engineering (University of Central Lancashire):
    - Precise time slots:
@@ -73,18 +145,17 @@ Supported EUE Timetable Formats:
      * 16:15:00 - 17:05:00
      * 17:05:00 - 17:50:00
    - Timetable may be photographed sideways or rotated (e.g. 90 degrees). Automatically detect orientation and parse correctly!
-   - Cells may use pipe '|' separation, for example: 'ERC016 | Design Studies | A107'
-     -> course_code: 'ERC016', course_name: 'Design Studies', room_number: 'A107'.
+   - Pipe-separated cells: 'ERC016 | Design Studies | A107' -> course_code: 'ERC016', course_name: 'Design Studies', room_number: 'A107'.
 
 General Instructions:
 - Output MUST be a valid JSON array of objects. Do not include markdown formatting or commentary.
 - Each object in the array must contain:
-  * "course_code": string (2-20 characters, uppercase alphanumeric, e.g. "FP0010", "CO1102", "ERC016")
-  * "course_name": string (full title, e.g. "Business and Management (Lecture)", "Design Studies")
+  * "course_code": string (2-20 characters, uppercase alphanumeric, e.g. "WD", "HCW", "DM", "ITP1", "FP0010", "CO1102", "ERC016")
+  * "course_name": string (full title, e.g. "Web Development (Mohamed Seif)", "Discrete Mathematics (Hosam Hassan)")
   * "day_of_week": string (full capitalized English day name: "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
   * "start_time": string (24-hour format HH:MM:00, e.g. "08:30:00", "13:30:00")
-  * "end_time": string (24-hour format HH:MM:00, e.g. "10:00:00", "15:00:00")
-  * "room_number": string (e.g. "Room A-412", "Lab A-107", "A107", or "" if none)
+  * "end_time": string (24-hour format HH:MM:00, e.g. "10:00:00", "11:30:00", "15:00:00")
+  * "room_number": string (e.g. "A 325 Lab", "A 504", "Room A-412", or "" if none)
 - DO NOT extract empty periods, assembly breaks, prayer breaks, lunch breaks, "Day off", or cells with "---".
 - ALL afternoon times MUST be converted to 24-hour format (e.g., 1:30 PM is 13:30:00, 3:00 PM is 15:00:00).
 """
@@ -251,23 +322,27 @@ async def upload_and_parse_timetable(
         if not isinstance(item, dict):
             continue
         try:
-            c_code = str(item.get("course_code") or "COURSE").strip().upper()
             c_name = str(item.get("course_name") or "Scheduled Class").strip()
-            day = str(item.get("day_of_week") or "Monday").strip().capitalize()
-            start = str(item.get("start_time") or "08:30:00").strip()
-            end = str(item.get("end_time") or "10:00:00").strip()
+            c_code = str(item.get("course_code") or "").strip().upper()
+            # If code is missing, single letter, or generic 'COURSE', auto-generate from course initials
+            if not c_code or len(c_code) < 2 or c_code == "COURSE":
+                c_code = generate_course_code_from_name(c_name)
+
+            day = normalize_day_str(item.get("day_of_week"))
+            start = normalize_time_str(item.get("start_time"))
+            end = normalize_time_str(item.get("end_time"))
             room = item.get("room_number")
             room_str = str(room).strip() if room else None
             if room_str == "":
                 room_str = None
 
             course = ScheduleCreate(
-                course_code=c_code[:20] if len(c_code) > 20 else c_code,
-                course_name=c_name[:100] if len(c_name) > 100 else c_name,
+                course_code=c_code[:20],
+                course_name=c_name[:100],
                 day_of_week=day,
                 start_time=start,
                 end_time=end,
-                room_number=room_str[:50] if (room_str and len(room_str) > 50) else room_str,
+                room_number=room_str[:50] if room_str else None,
                 is_cancelled=bool(item.get("is_cancelled", False))
             )
             valid_courses.append(course)
