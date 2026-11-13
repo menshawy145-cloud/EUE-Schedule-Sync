@@ -100,6 +100,9 @@ def calculate_mutual_free_time(schedules_a: List[Schedule], schedules_b: List[Sc
     for d in days:
         day_a = [s for s in schedules_a if s.day_of_week == d and not s.is_cancelled]
         day_b = [s for s in schedules_b if s.day_of_week == d and not s.is_cancelled]
+        # Only calculate mutual free slots on days when BOTH students have active classes on campus
+        if len(day_a) == 0 or len(day_b) == 0:
+            continue
         busy = []
         for s in day_a + day_b:
             busy.append((max(DAY_START, _time_to_minutes(s.start_time)), min(DAY_END, _time_to_minutes(s.end_time))))

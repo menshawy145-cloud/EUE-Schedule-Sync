@@ -11,18 +11,21 @@ export const FriendScheduleScreen = ({ route, navigation }) => {
   const { friendId, friendName, studentId } = route.params;
   const [selectedDay, setSelectedDay] = useState('Saturday');
   const [scheduleData, setScheduleData] = useState(null);
+  const [mySchedules, setMySchedules] = useState([]);
   const [overlapData, setOverlapData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchFriendData = useCallback(async () => {
     try {
       setLoading(true);
-      const [friendRes, overlapRes] = await Promise.all([
+      const [friendRes, overlapRes, myRes] = await Promise.all([
         api.friends.getFriendSchedule(friendId),
         api.schedules.getFriendOverlap(friendId),
+        api.schedules.getAll(),
       ]);
       setScheduleData(friendRes);
       setOverlapData(overlapRes);
+      setMySchedules(myRes || []);
     } catch (err) {
       alert(err.message || 'Error fetching friend timetable');
       navigation.goBack();
@@ -43,6 +46,14 @@ export const FriendScheduleScreen = ({ route, navigation }) => {
     );
   }
 
+  // Current user's classes on this day
+  const myDayCourses = (mySchedules || []).filter(
+    (s) => s.day_of_week === selectedDay
+  );
+  const myActiveCourses = myDayCourses.filter((s) => !s.is_cancelled);
+  const isMeComingOnDay = myActiveCourses.length > 0;
+
+  // Friend's classes on this day
   const dayCourses = (scheduleData?.schedules || []).filter(
     (s) => s.day_of_week === selectedDay
   );
@@ -87,11 +98,18 @@ export const FriendScheduleScreen = ({ route, navigation }) => {
 
       <ScrollView style={styles.content}>
         {/* Mutual Free Time or Not Coming Notice */}
-        {!isFriendComingOnDay ? (
+        {!isMeComingOnDay ? (
+          <View style={styles.notComingCard}>
+            <Text style={styles.notComingTitle}>🏠 No Mutual Campus Time on {selectedDay}</Text>
+            <Text style={styles.notComingSubtitle}>
+              You have no classes on {selectedDay}, so you won't be at the university.
+            </Text>
+          </View>
+        ) : !isFriendComingOnDay ? (
           <View style={styles.notComingCard}>
             <Text style={styles.notComingTitle}>🏠 Not Coming to Campus on {selectedDay}</Text>
             <Text style={styles.notComingSubtitle}>
-              {friendName} has no active classes scheduled on {selectedDay} (Day Off).
+              {friendName} has no active classes on {selectedDay}.
             </Text>
           </View>
         ) : (
@@ -103,7 +121,9 @@ export const FriendScheduleScreen = ({ route, navigation }) => {
               dayOverlapSlots.map((slot, idx) => (
                 <View key={idx} style={styles.freeSlotBadge}>
                   <Text style={styles.freeSlotDot}>🟢</Text>
-                  <Text style={styles.freeSlotText}>{formatTime12h(slot.start_time)} to {formatTime12h(slot.end_time)} ({slot.duration_minutes} mins free together)</Text>
+                  <Text style={styles.freeSlotText}>
+                    {formatTime12h(slot.start_time)} to {formatTime12h(slot.end_time)} ({slot.duration_minutes} mins free together)
+                  </Text>
                 </View>
               ))
             )}
