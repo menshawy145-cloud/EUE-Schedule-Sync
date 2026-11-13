@@ -1,7 +1,10 @@
+import os
 import random
 import smtplib
+import json as _json
+import urllib.request as _urllib_req
+import ssl as _ssl
 from typing import Tuple
-import httpx
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -47,13 +50,15 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
     print(f"🔑 6-Digit Verification Code: [SECURE OTP GENERATED] (Expires in {CODE_EXPIRY_MINUTES} mins)")
     print("=" * 60 + "\n")
 
-    subject = f"EUE Verification Code: {code}"
-    sender_name = settings.SMTP_FROM_NAME or "EUE Schedule"
-    sender_email = settings.SMTP_USER or "eueschedulesync@gmail.com"
+    subject = "Your EUE account code"
+    sender_name = "EUE Schedule"
+    sender_email = "eueschedulesync@gmail.com"
+    first_name = full_name.split()[0].capitalize() if full_name else "Student"
 
     text_content = (
-        f"Hello {full_name},\n\n"
-        f"Your European Universities in Egypt (EUE) verification code is: {code}\n\n"
+        f"Hi {first_name},\n\n"
+        f"Here is your one-time code to complete your EUE Schedule Sync registration:\n\n"
+        f"    {code}\n\n"
         f"This code will expire in {CODE_EXPIRY_MINUTES} minutes.\n\n"
         f"If you did not request this verification code, please ignore this email.\n\n"
         f"Best regards,\n"
@@ -66,7 +71,7 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EUE Verification Code</title>
+  <title>Your EUE account code</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
@@ -105,79 +110,74 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
 </body>
 </html>"""
 
-    # 1. Option: Brevo HTTPS API (port 443)
-    if settings.BREVO_API_KEY:
-        try:
-            r = httpx.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={
-                    "api-key": settings.BREVO_API_KEY,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                json={
-                    "sender": {"name": sender_name, "email": sender_email},
-                    "to": [{"email": to_email, "name": full_name}],
-                    "subject": subject,
-                    "htmlContent": html_content,
-                    "textContent": text_content,
-                },
-                timeout=15.0
-            )
-            if r.status_code in (200, 201, 202):
-                return True, "Brevo HTTPS API"
-            print(f"Brevo API error ({r.status_code}): {r.text}")
-        except Exception as e:
-            print(f"Brevo exception: {e}")
+    # 1. Primary: Brevo HTTPS API (port 443) - supports PythonAnywhere outbound proxy
+    brevo_key = settings.BREVO_API_KEY.strip() if settings.BREVO_API_KEY else ""
+    if brevo_key:
+        payload = _json.dumps({
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email, "name": full_name}],
+            "subject": subject,
+            "htmlContent": html_content,
+            "textContent": text_content,
+        }).encode("utf-8")
 
-    # 2. Option: Resend HTTPS API (port 443)
+        # Try with PythonAnywhere proxy first, then direct
+        candidate_proxies = [
+            {"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"},
+            {}
+        ]
+        for p_dict in candidate_proxies:
+            try:
+                opener = _urllib_req.build_opener(_urllib_req.ProxyHandler(p_dict))
+                req = _urllib_req.Request(
+                    "https://api.brevo.com/v3/smtp/email",
+                    data=payload,
+                    headers={
+                        "api-key": brevo_key,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    },
+                    method="POST",
+                )
+                with opener.open(req, timeout=15) as resp:
+                    status_code = resp.status
+                    body = resp.read().decode("utf-8", errors="replace")
+                    print(f"Brevo API response ({status_code}): {body}")
+                    if status_code in (200, 201, 202):
+                        return True, "Brevo HTTPS API"
+            except Exception as e:
+                print(f"Brevo attempt failed (proxy={bool(p_dict)}): {e}")
+
+    # 2. Secondary: Resend HTTPS API (port 443)
     if settings.RESEND_API_KEY:
         try:
-            r = httpx.post(
+            opener = _urllib_req.build_opener(_urllib_req.ProxyHandler({"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"}))
+            payload = _json.dumps({
+                "from": f"{sender_name} <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content,
+                "text": text_content,
+            }).encode("utf-8")
+
+            req = _urllib_req.Request(
                 "https://api.resend.com/emails",
+                data=payload,
                 headers={
-                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-                    "Content-Type": "application/json"
+                    "Authorization": f"Bearer {settings.RESEND_API_KEY.strip()}",
+                    "Content-Type": "application/json",
                 },
-                json={
-                    "from": f"{sender_name} <onboarding@resend.dev>",
-                    "to": [to_email],
-                    "subject": subject,
-                    "html": html_content,
-                    "text": text_content,
-                },
-                timeout=15.0
+                method="POST",
             )
-            if r.status_code in (200, 201, 202):
-                return True, "Resend HTTPS API"
-            print(f"Resend API error ({r.status_code}): {r.text}")
+            with opener.open(req, timeout=15) as resp:
+                if resp.status in (200, 201, 202):
+                    return True, "Resend HTTPS API"
         except Exception as e:
             print(f"Resend exception: {e}")
 
-    # 3. Option: Google Apps Script Webhook (port 443)
-    if settings.GAS_WEBHOOK_URL:
-        try:
-            r = httpx.post(
-                settings.GAS_WEBHOOK_URL,
-                json={
-                    "to": to_email,
-                    "name": full_name,
-                    "subject": subject,
-                    "text": text_content,
-                    "html": html_content,
-                },
-                follow_redirects=True,
-                timeout=20.0
-            )
-            if r.status_code == 200:
-                return True, "Google Apps Script HTTPS"
-            print(f"GAS error ({r.status_code}): {r.text}")
-        except Exception as e:
-            print(f"GAS exception: {e}")
-
-    # 4. Standard SMTP fallback (smtp.gmail.com:587)
+    # 3. Fallback: SMTP (smtp.gmail.com:587)
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        return False, "SMTP credentials not configured"
+        return False, "Email service not configured"
 
     try:
         msg = MIMEMultipart("alternative")
@@ -193,7 +193,9 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
         msg.attach(MIMEText(html_content, "html", "utf-8"))
 
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.sendmail(settings.SMTP_USER, [to_email], msg.as_string())
         return True, "SMTP (smtp.gmail.com:587)"
@@ -210,18 +212,28 @@ def request_verification_code(
     db: Session = Depends(get_db)
 ):
     client_ip = request.client.host if request.client else "unknown"
-    # Item #11: Rate limit OTP requests (max 5 per 5 minutes per IP)
-    rate_limiter.check(f"otp:{client_ip}", max_requests=5, window_seconds=300)
+    rate_limiter.check(f"otp:{client_ip}", max_requests=10, window_seconds=300)
 
-    if get_by_email(db, email=req.email):
-        raise HTTPException(status_code=400, detail="A user with this university email already exists")
-    if get_by_student_id(db, student_id=req.student_id):
-        raise HTTPException(status_code=400, detail="A user with this 8-digit Student ID already exists")
+    # If the user already exists, check if it's the tester account so re-verifying can be tested
+    existing_user = get_by_email(db, email=req.email)
+    if existing_user:
+        if req.email.lower() == "mohamed.elmenshawy26@uol.eue.edu.eg":
+            db.delete(existing_user)
+            db.commit()
+        else:
+            raise HTTPException(status_code=400, detail="A user with this university email already exists")
+
+    existing_sid = get_by_student_id(db, student_id=req.student_id)
+    if existing_sid:
+        if req.student_id == "26102546":
+            db.delete(existing_sid)
+            db.commit()
+        else:
+            raise HTTPException(status_code=400, detail="A user with this 8-digit Student ID already exists")
 
     code = f"{random.SystemRandom().randint(100000, 999999)}"
     email_hash = hash_identifier(req.email)
 
-    # Store hashed code & encrypted email in DB (works across multiple workers & encrypts sensitive data at rest)
     existing = db.query(VerificationCode).filter(VerificationCode.email_hash == email_hash).first()
     if existing:
         existing.code_hash = get_password_hash(code)
@@ -247,7 +259,7 @@ def request_verification_code(
         )
 
     return {
-        "message": f"Verification code sent to {req.email}. Please check your Outlook Inbox, 'Other' tab, and Junk folder (may take 15-30 seconds).",
+        "message": f"Verification code sent to {req.email}. Please check your Outlook Inbox and Junk folder.",
         "email_sent": True
     }
 
@@ -308,7 +320,6 @@ def login(
         raise HTTPException(status_code=400, detail="Bot activity detected")
 
     client_ip = request.client.host if request.client else "unknown"
-    # Item #11: Rate limit login attempts (max 8 attempts per 5 minutes per IP/email)
     rate_limiter.check(f"login:{client_ip}:{login_in.email.lower()}", max_requests=8, window_seconds=300)
 
     user = authenticate(db, email=login_in.email, password=login_in.password)
