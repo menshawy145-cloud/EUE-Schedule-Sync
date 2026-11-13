@@ -129,3 +129,60 @@ class UserSearchResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    honeypot: Optional[str] = ""
+
+    class Config:
+        extra = "forbid"
+
+    @validator("honeypot")
+    def check_bot_honeypot(cls, v):
+        if v and v.strip():
+            raise ValueError("Bot activity detected")
+        return ""
+
+    @validator("email")
+    def validate_university_domain(cls, v):
+        domain = v.split("@")[-1].lower()
+        allowed = [d.lower() for d in settings.ALLOWED_EMAIL_DOMAINS]
+        if settings.ENFORCE_UNIVERSITY_DOMAIN and domain not in allowed:
+            raise ValueError("Email must belong to an EUE partner university (@uol.eue.edu.eg, @uclan.eue.edu.eg, or @uel.eue.edu.eg)")
+        return v.lower()
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    verification_code: str
+    new_password: str
+    honeypot: Optional[str] = ""
+
+    class Config:
+        extra = "forbid"
+
+    @validator("honeypot")
+    def check_bot_honeypot(cls, v):
+        if v and v.strip():
+            raise ValueError("Bot activity detected")
+        return ""
+
+    @validator("email")
+    def validate_university_domain(cls, v):
+        domain = v.split("@")[-1].lower()
+        allowed = [d.lower() for d in settings.ALLOWED_EMAIL_DOMAINS]
+        if settings.ENFORCE_UNIVERSITY_DOMAIN and domain not in allowed:
+            raise ValueError("Email must belong to an EUE partner university")
+        return v.lower()
+
+    @validator("verification_code")
+    def validate_code(cls, v):
+        cleaned = v.strip()
+        if not re.match(r"^\d{6}$", cleaned):
+            raise ValueError("Verification code must be a 6-digit number")
+        return cleaned
+
+    @validator("new_password")
+    def validate_password(cls, v):
+        if len(v) < 6 or len(v) > 128:
+            raise ValueError("Password must be between 6 and 128 characters long")
+        return v

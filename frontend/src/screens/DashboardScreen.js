@@ -14,9 +14,27 @@ export const DashboardScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [friendFilter, setFriendFilter] = useState('ALL'); // 'ALL' | 'FREE' | 'IN_CLASS' | 'OFF_CAMPUS'
 
-  const fetchDashboard = useCallback(async () => {
+  // Time-shift state: 'NOW' | 'NEXT_BREAK' | 'TOMORROW'
+  const [timeMode, setTimeMode] = useState('NOW');
+  const [tomorrowTime, setTomorrowTime] = useState('10:00');
+
+  const fetchDashboard = useCallback(async (mode = timeMode, tTime = tomorrowTime) => {
     try {
-      const data = await api.dashboard.getDashboard();
+      let dayOffset = 0;
+      let targetTime = null;
+
+      if (mode === 'NEXT_BREAK') {
+        const d = new Date();
+        d.setMinutes(d.getMinutes() + 90);
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        targetTime = `${h}:${m}`;
+      } else if (mode === 'TOMORROW') {
+        dayOffset = 1;
+        targetTime = tTime || '10:00';
+      }
+
+      const data = await api.dashboard.getDashboard(dayOffset, targetTime);
       setDashboardData(data);
     } catch (err) {
       console.warn("Failed to load dashboard:", err.message);
@@ -24,7 +42,7 @@ export const DashboardScreen = ({ navigation }) => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [timeMode, tomorrowTime]);
 
   useEffect(() => {
     fetchDashboard();
@@ -32,7 +50,19 @@ export const DashboardScreen = ({ navigation }) => {
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchDashboard();
+    fetchDashboard(timeMode, tomorrowTime);
+  };
+
+  const handleTimeModeChange = (mode) => {
+    setTimeMode(mode);
+    setRefreshing(true);
+    fetchDashboard(mode, tomorrowTime);
+  };
+
+  const handleTomorrowTimeChange = (tTime) => {
+    setTomorrowTime(tTime);
+    setRefreshing(true);
+    fetchDashboard('TOMORROW', tTime);
   };
 
   if (loading) {
@@ -74,6 +104,55 @@ export const DashboardScreen = ({ navigation }) => {
         </View>
       </View>
 
+      {/* Quick-Toggle Pills: Now / Next Break / Tomorrow */}
+      <View style={styles.timeSwitchContainer}>
+        <View style={styles.timeSwitchRow}>
+          <TouchableOpacity
+            style={[styles.timePill, timeMode === 'NOW' && styles.timePillActive]}
+            onPress={() => handleTimeModeChange('NOW')}
+          >
+            <Text style={[styles.timePillText, timeMode === 'NOW' && styles.timePillTextActive]}>
+              🟢 Now
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.timePill, timeMode === 'NEXT_BREAK' && styles.timePillActive]}
+            onPress={() => handleTimeModeChange('NEXT_BREAK')}
+          >
+            <Text style={[styles.timePillText, timeMode === 'NEXT_BREAK' && styles.timePillTextActive]}>
+              ⏭️ Next Break (+90m)
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.timePill, timeMode === 'TOMORROW' && styles.timePillActive]}
+            onPress={() => handleTimeModeChange('TOMORROW')}
+          >
+            <Text style={[styles.timePillText, timeMode === 'TOMORROW' && styles.timePillTextActive]}>
+              📅 Tomorrow ({tomorrowTime})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {timeMode === 'TOMORROW' && (
+          <View style={styles.tomorrowTimeRow}>
+            <Text style={styles.tomorrowTimeLabel}>Target Time:</Text>
+            {['08:30', '10:00', '11:30', '13:30', '15:00', '16:30'].map((slot) => (
+              <TouchableOpacity
+                key={slot}
+                style={[styles.subTimePill, tomorrowTime === slot && styles.subTimePillActive]}
+                onPress={() => handleTomorrowTimeChange(slot)}
+              >
+                <Text style={[styles.subTimePillText, tomorrowTime === slot && styles.subTimePillTextActive]}>
+                  {formatTime12h(slot + ':00')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+
       {/* Current User Status Banner */}
       <View style={[
         styles.statusBanner,
@@ -82,10 +161,10 @@ export const DashboardScreen = ({ navigation }) => {
         <View style={styles.statusBannerHeader}>
           <Text style={styles.statusBannerTitle}>
             {!myOnCampus
-              ? '🏠 Day Off — You Have No Classes Today'
+              ? (timeMode === 'TOMORROW' ? '🏠 Tomorrow Day Off — No Classes Scheduled' : '🏠 Day Off — You Have No Classes Today')
               : myStatus?.in_class
-              ? '🔴 You are Currently in Class'
-              : '🟢 You are Free on Campus Right Now'}
+              ? (timeMode === 'TOMORROW' ? '🔴 Class Scheduled at Tomorrow Preview Time' : timeMode === 'NEXT_BREAK' ? '🔴 Class at Next Period' : '🔴 You are Currently in Class')
+              : (timeMode === 'TOMORROW' ? '🟢 Free on Campus at Tomorrow Preview Time' : timeMode === 'NEXT_BREAK' ? '🟢 Free on Campus at Next Break' : '🟢 You are Free on Campus Right Now')}
           </Text>
           <Text style={styles.dayTimeText}>
             {dashboardData?.today_day} • {formatTime12h(dashboardData?.current_time)}
@@ -94,7 +173,7 @@ export const DashboardScreen = ({ navigation }) => {
 
         {!myOnCampus && (
           <Text style={styles.statusBannerDetail}>
-            You have no scheduled classes on {dashboardData?.today_day} (Not coming to campus today).
+            You have no scheduled classes on {dashboardData?.today_day} ({timeMode === 'TOMORROW' ? "won't be coming to campus tomorrow" : "not coming to campus today"}).
           </Text>
         )}
 
@@ -112,7 +191,9 @@ export const DashboardScreen = ({ navigation }) => {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>My Classes Today ({dashboardData?.today_day})</Text>
+        <Text style={styles.sectionTitle}>
+          {timeMode === 'TOMORROW' ? 'My Classes Tomorrow' : 'My Classes Today'} ({dashboardData?.today_day})
+        </Text>
         <TouchableOpacity onPress={() => navigation.navigate('Schedule')}>
           <Text style={styles.seeAllText}>Full Week →</Text>
         </TouchableOpacity>
@@ -120,7 +201,9 @@ export const DashboardScreen = ({ navigation }) => {
 
       {dashboardData?.my_schedule_today?.length === 0 ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>🏠 Day Off! You have no classes scheduled for {dashboardData?.today_day} (Not coming to campus).</Text>
+          <Text style={styles.emptyText}>
+            🏠 Day Off! You have no classes scheduled for {dashboardData?.today_day} ({timeMode === 'TOMORROW' ? "won't be on campus tomorrow" : "not coming to campus"}).
+          </Text>
         </View>
       ) : (
         dashboardData?.my_schedule_today?.map((course) => (
@@ -195,6 +278,78 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   studentBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  timeSwitchContainer: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timeSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  timePill: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 3,
+    backgroundColor: colors.inputBg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  timePillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  timePillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  timePillTextActive: {
+    color: '#fff',
+  },
+  tomorrowTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    flexWrap: 'wrap',
+  },
+  tomorrowTimeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginRight: 6,
+  },
+  subTimePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: colors.inputBg,
+    marginRight: 4,
+    marginVertical: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  subTimePillActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  subTimePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  subTimePillTextActive: {
+    color: '#fff',
+  },
   statusBanner: {
     borderRadius: 12,
     padding: spacing.md,

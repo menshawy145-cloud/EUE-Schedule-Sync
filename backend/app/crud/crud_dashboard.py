@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.crud.crud_schedule import get_user_schedules
@@ -25,10 +25,28 @@ def _format_time_12h(time_str: str) -> str:
     except Exception:
         return time_str[:5]
 
-def calculate_dashboard(db: Session, user_id: str, now: Optional[datetime] = None) -> DashboardResponse:
-    now = now or datetime.now()
-    day_name = now.strftime("%A")
-    current_time_str = now.strftime("%H:%M:%S")
+def calculate_dashboard(
+    db: Session,
+    user_id: str,
+    now: Optional[datetime] = None,
+    day_offset: int = 0,
+    target_time: Optional[str] = None
+) -> DashboardResponse:
+    target_dt = now or datetime.now()
+    if day_offset:
+        target_dt = target_dt + timedelta(days=day_offset)
+
+    if target_time:
+        try:
+            parts = target_time.strip().split(":")
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+            target_dt = target_dt.replace(hour=h, minute=m, second=0, microsecond=0)
+        except Exception:
+            pass
+
+    day_name = target_dt.strftime("%A")
+    current_time_str = target_dt.strftime("%H:%M:%S")
     now_secs = _time_str_to_seconds(current_time_str)
 
     today_schedules = get_user_schedules(db, user_id, day_of_week=day_name, include_cancelled=True)

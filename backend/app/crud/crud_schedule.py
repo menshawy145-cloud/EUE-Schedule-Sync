@@ -133,3 +133,60 @@ def calculate_mutual_free_time(schedules_a: List[Schedule], schedules_b: List[Sc
                 display_text=f"{d}: {_format_time_12h(_minutes_to_time(curr))} - {_format_time_12h(_minutes_to_time(DAY_END))} ({DAY_END - curr} mins free together)"
             ))
     return free_slots
+
+def calculate_group_mutual_free_time(all_user_schedules: List[List[Schedule]]) -> List[FreeSlot]:
+    """
+    Computes common free slots (30+ mins between 08:30 and 18:00) across all users in the group,
+    ONLY on days where EVERY member in the group has at least 1 active non-cancelled class on campus.
+    """
+    DAY_START = 8 * 60 + 30
+    DAY_END = 18 * 60
+    days = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    free_slots = []
+
+    if not all_user_schedules:
+        return free_slots
+
+    for d in days:
+        everybody_has_class = True
+        all_day_classes = []
+        for user_sched in all_user_schedules:
+            day_classes = [s for s in user_sched if s.day_of_week == d and not s.is_cancelled]
+            if len(day_classes) == 0:
+                everybody_has_class = False
+                break
+            all_day_classes.extend(day_classes)
+
+        if not everybody_has_class:
+            continue
+
+        busy = []
+        for s in all_day_classes:
+            busy.append((max(DAY_START, _time_to_minutes(s.start_time)), min(DAY_END, _time_to_minutes(s.end_time))))
+        busy.sort()
+        merged = []
+        for start, end in busy:
+            if not merged or merged[-1][1] < start:
+                merged.append([start, end])
+            else:
+                merged[-1][1] = max(merged[-1][1], end)
+        curr = DAY_START
+        for b_start, b_end in merged:
+            if b_start - curr >= 30:
+                free_slots.append(FreeSlot(
+                    day=d,
+                    start_time=_minutes_to_time(curr),
+                    end_time=_minutes_to_time(b_start),
+                    duration_minutes=(b_start - curr),
+                    display_text=f"{d}: {_format_time_12h(_minutes_to_time(curr))} - {_format_time_12h(_minutes_to_time(b_start))} ({b_start - curr} mins free together)"
+                ))
+            curr = max(curr, b_end)
+        if DAY_END - curr >= 30:
+            free_slots.append(FreeSlot(
+                day=d,
+                start_time=_minutes_to_time(curr),
+                end_time=_minutes_to_time(DAY_END),
+                duration_minutes=(DAY_END - curr),
+                display_text=f"{d}: {_format_time_12h(_minutes_to_time(curr))} - {_format_time_12h(_minutes_to_time(DAY_END))} ({DAY_END - curr} mins free together)"
+            ))
+    return free_slots

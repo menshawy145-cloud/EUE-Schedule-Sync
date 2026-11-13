@@ -90,3 +90,25 @@ class MutualFreeTimeResponse(BaseModel):
     friend_id: str
     friend_name: str
     common_free_slots: List[FreeSlot]
+
+class GroupOverlapRequest(BaseModel):
+    friend_ids: List[str]
+
+    class Config:
+        extra = "forbid"
+
+    @validator("friend_ids")
+    def validate_friend_ids(cls, v):
+        if not v or len(v) < 1 or len(v) > 10:
+            raise ValueError("Must provide between 1 and 10 friend IDs")
+        seen = set()
+        unique_ids = []
+        for fid in v:
+            fid_clean = str(fid).strip()
+            if fid_clean and fid_clean not in seen:
+                seen.add(fid_clean)
+                unique_ids.append(fid_clean)
+        if not unique_ids:
+            raise ValueError("Must provide at least one valid friend ID")
+        return unique_ids
+

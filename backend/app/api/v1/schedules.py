@@ -16,7 +16,9 @@ from app.schemas.schedule import (
     ScheduleUpdate,
     ScheduleResponse,
     ScheduleBatchCreate,
-    MutualFreeTimeResponse
+    MutualFreeTimeResponse,
+    GroupOverlapRequest,
+    FreeSlot
 )
 from app.crud.crud_schedule import (
     create_schedule,
@@ -27,7 +29,8 @@ from app.crud.crud_schedule import (
     delete_schedule,
     toggle_course_cancellation,
     clear_all_user_schedules,
-    calculate_mutual_free_time
+    calculate_mutual_free_time,
+    calculate_group_mutual_free_time
 )
 from app.crud.crud_friendship import are_friends
 
@@ -366,6 +369,34 @@ def get_friend_overlap(friend_id: str, db: Session = Depends(get_db), current_us
         friend_name=friend.full_name,
         common_free_slots=calculate_mutual_free_time(my_schedules, friend_schedules)
     )
+
+@router.post("/group-overlap", response_model=List[FreeSlot])
+def get_group_overlap(
+    req: GroupOverlapRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Compute common free slots across the current user AND all selected friends combined,
+    ONLY on days where EVERY member (including current user) has at least 1 active non-cancelled class on campus.
+    """
+    if not req.friend_ids:
+        raise HTTPException(status_code=400, detail="At least one friend ID is required.")
+
+    friends_schedules = []
+    for fid in req.friend_ids:
+        if fid == current_user.id:
+            continue
+        if not are_friends(db, current_user.id, fid):
+            raise HTTPException(status_code=403, detail=f"Cannot calculate overlap with non-friend (ID: {fid}).")
+        friend = db.query(User).filter(User.id == fid).first()
+        if not friend:
+            raise HTTPException(status_code=404, detail=f"Friend not found (ID: {fid})")
+        friends_schedules.append(get_user_schedules(db, friend.id))
+
+    my_schedules = get_user_schedules(db, current_user.id)
+    all_schedules = [my_schedules] + friends_schedules
+    return calculate_group_mutual_free_time(all_schedules)
 
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_course(schedule_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):

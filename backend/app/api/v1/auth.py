@@ -13,7 +13,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import settings
-from app.schemas.user import UserCreate, UserLogin, Token, UserResponse, VerificationCodeRequest
+from app.schemas.user import (
+    UserCreate,
+    UserLogin,
+    Token,
+    UserResponse,
+    VerificationCodeRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
 from app.crud.crud_user import get_by_email, get_by_student_id, create_user, authenticate
 from app.core.security import (
     create_access_token,
@@ -357,3 +365,125 @@ def login(
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    req: ForgotPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter.check(f"forgot:{client_ip}", max_requests=6, window_seconds=300)
+
+    user = get_by_email(db, email=req.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No registered account found with this university email."
+        )
+
+    code = f"{random.SystemRandom().randint(100000, 999999)}"
+    email_hash = hash_identifier(req.email)
+
+    existing = db.query(VerificationCode).filter(VerificationCode.email_hash == email_hash).first()
+    if existing:
+        existing.code_hash = get_password_hash(code)
+        existing.encrypted_email = encrypt_sensitive(req.email.lower())
+        existing.attempts = 0
+        existing.expires_at = datetime.utcnow() + timedelta(minutes=CODE_EXPIRY_MINUTES)
+    else:
+        db_record = VerificationCode(
+            email_hash=email_hash,
+            encrypted_email=encrypt_sensitive(req.email.lower()),
+            code_hash=get_password_hash(code),
+            attempts=0,
+            expires_at=datetime.utcnow() + timedelta(minutes=CODE_EXPIRY_MINUTES),
+        )
+        db.add(db_record)
+    db.commit()
+
+    import urllib.parse
+    subject = f"EUE Password Reset {code}"
+    body = f"Reset my EUE password: {code}"
+    mailto_url = f"mailto:{TARGET_SYNC_EMAIL}?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
+
+    # Best-effort outbound email as well
+    _send_verification_email(req.email.lower(), user.full_name, code)
+
+    return {
+        "message": f"Password reset initiated. Please send the verification email from your university Outlook to {TARGET_SYNC_EMAIL}.",
+        "code": code,
+        "target_email": TARGET_SYNC_EMAIL,
+        "subject": subject,
+        "body": body,
+        "mailto": mailto_url,
+        "email_sent": True
+    }
+
+
+@router.post("/reset-password")
+def reset_password(
+    req: ResetPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter.check(f"reset:{client_ip}", max_requests=8, window_seconds=300)
+
+    user = get_by_email(db, email=req.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No registered account found with this university email."
+        )
+
+    email_hash = hash_identifier(req.email)
+    record = db.query(VerificationCode).filter(VerificationCode.email_hash == email_hash).first()
+
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active password reset request found. Please click 'Forgot Password' and request a code first."
+        )
+
+    if datetime.utcnow() > record.expires_at:
+        db.delete(record)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new code."
+        )
+
+    if record.attempts >= 8:
+        db.delete(record)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many invalid attempts. Please request a new verification code."
+        )
+
+    if not verify_password(req.verification_code.strip(), record.code_hash):
+        record.attempts += 1
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 6-digit verification code.")
+
+    # Reverse Verification check
+    reverse_verified = _verify_reverse_email(req.email, req.verification_code)
+    if not reverse_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"We haven't detected your email yet at {TARGET_SYNC_EMAIL}. "
+                "Please make sure you clicked Send in your university Outlook, "
+                "wait 5–10 seconds for Microsoft to dispatch it, then tap 'Reset Password' again."
+            )
+        )
+
+    # Success: update hashed_password and remove code
+    user.hashed_password = get_password_hash(req.new_password)
+    db.delete(record)
+    db.commit()
+
+    return {"message": "Password reset successfully. You can now sign in with your new password."}
+

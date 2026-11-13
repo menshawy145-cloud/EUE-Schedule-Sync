@@ -34,6 +34,14 @@ export const api = {
     }),
     signup: (userData) => request('/auth/signup', { method: 'POST', body: JSON.stringify(userData) }),
     login: (credentials) => request('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
+    forgotPassword: (payload) => request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+    resetPassword: (payload) => request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
     getMe: () => request('/auth/me'),
   },
   users: {
@@ -51,6 +59,10 @@ export const api = {
       return request('/schedules/upload-image', { method: 'POST', body: formData });
     },
     getFriendOverlap: (friendId) => request(`/schedules/friends/${friendId}/overlap`),
+    getGroupOverlap: (friendIds) => request('/schedules/group-overlap', {
+      method: 'POST',
+      body: JSON.stringify({ friend_ids: friendIds }),
+    }),
     delete: (id) => request(`/schedules/${id}`, { method: 'DELETE' }),
   },
   friends: {
@@ -63,6 +75,12 @@ export const api = {
     removeFriend: (friendId) => request(`/friends/${friendId}`, { method: 'DELETE' }),
   },
   dashboard: {
-    getDashboard: () => request('/dashboard/'),
+    getDashboard: (dayOffset = 0, targetTime = null) => {
+      let url = `/dashboard/?day_offset=${dayOffset}`;
+      if (targetTime) {
+        url += `&target_time=${encodeURIComponent(targetTime)}`;
+      }
+      return request(url);
+    },
   },
 };
