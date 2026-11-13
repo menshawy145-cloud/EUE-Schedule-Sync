@@ -162,12 +162,9 @@ async def upload_and_parse_timetable(
     }
 
     req_data = json.dumps(gemini_payload).encode("utf-8")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    req = urllib.request.Request(
-        url,
-        data=req_data,
-        headers={"Content-Type": "application/json"}
-    )
+
+    # Models to try: requested gemini-2.5-flash first, falling back to gemini-3-flash-preview / gemini-3.8-flash
+    candidate_models = ["gemini-2.5-flash", "gemini-3-flash-preview", "gemini-3.8-flash", "gemini-flash-latest"]
 
     # SSL context with hostname/expired bypass to prevent clock-drift failures
     ssl_ctx = ssl.create_default_context()
@@ -176,20 +173,34 @@ async def upload_and_parse_timetable(
 
     response_text = None
     last_err = None
-    # Try PythonAnywhere outbound proxy first, then direct
-    for p_dict in [{"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"}, {}]:
-        try:
-            handlers = [urllib.request.HTTPSHandler(context=ssl_ctx)]
-            if p_dict:
-                handlers.append(urllib.request.ProxyHandler(p_dict))
-            opener = urllib.request.build_opener(*handlers)
-            with opener.open(req, timeout=60) as resp:
-                response_text = resp.read().decode("utf-8")
-                if response_text:
+
+    for model_name in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        req = urllib.request.Request(
+            url,
+            data=req_data,
+            headers={"Content-Type": "application/json"}
+        )
+        # Try PythonAnywhere outbound proxy first, then direct
+        for p_dict in [{"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"}, {}]:
+            try:
+                handlers = [urllib.request.HTTPSHandler(context=ssl_ctx)]
+                if p_dict:
+                    handlers.append(urllib.request.ProxyHandler(p_dict))
+                opener = urllib.request.build_opener(*handlers)
+                with opener.open(req, timeout=45) as resp:
+                    response_text = resp.read().decode("utf-8")
+                    if response_text:
+                        break
+            except urllib.error.HTTPError as http_e:
+                last_err = http_e
+                if http_e.code in (404, 503):
                     break
-        except Exception as e:
-            last_err = e
-            continue
+            except Exception as e:
+                last_err = e
+                continue
+        if response_text:
+            break
 
     if not response_text:
         raise HTTPException(
