@@ -92,9 +92,9 @@ export const RegisterScreen = ({ navigation }) => {
       });
       setCodeSent(true);
       if (res.dev_code) {
-        setInfoMessage(`📧 Code sent to ${fullEmail}! (Verification Code: ${res.dev_code})`);
+        setInfoMessage(`📧 Code sent to ${fullEmail}! (Your Code: ${res.dev_code})`);
       } else {
-        setInfoMessage(`📧 A 6-digit verification code was sent to ${fullEmail}. Check your inbox!`);
+        setInfoMessage(`📧 Code sent to ${fullEmail}! Check your Outlook Inbox, "Other" tab, and Junk folder.`);
       }
     } catch (err) {
       setErrorMessage(err.message || 'Could not send verification code.');

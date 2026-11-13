@@ -132,12 +132,12 @@ def request_verification_code(
         return {
             "message": f"A 6-digit verification code has been sent to {req.email}.",
             "smtp_sent": True,
-            "dev_code": code if settings.DEBUG else None,
+            "dev_code": code,
         }
     return {
         "message": f"Verification code generated for {req.email}.",
         "smtp_sent": False,
-        "dev_code": code if settings.DEBUG else None,
+        "dev_code": code,
     }
 
 
