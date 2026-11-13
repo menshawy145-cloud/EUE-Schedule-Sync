@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "EUE",
+    "slug": "eue",
+    "version": "3.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#1A2B49"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1A2B49"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "name": "eue",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

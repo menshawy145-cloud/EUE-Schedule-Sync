@@ -1,0 +1,35 @@
+# Secrets & Sensitive Scripts (NEVER COMMIT)
+.env
+.env.*
+setup_pa_asgi.py
+*.key
+*.pem
+secrets.*
+token.txt
+
+# Databases & Cache
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+*.log
+
+# Node & Expo Builds
+node_modules/
+.expo/
+dist/
+web-build/
+.vercel/
+npm-debug.*
+yarn-error.*
+.DS_Store
+Thumbs.db
