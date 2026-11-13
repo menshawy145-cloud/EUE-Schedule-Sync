@@ -1,5 +1,7 @@
 import random
 import smtplib
+from typing import Tuple
+import httpx
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -39,44 +41,153 @@ def _set_secure_session_cookie(response: Response, token: str):
     )
 
 
-def _send_verification_email(to_email: str, full_name: str, code: str) -> bool:
+def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[bool, str]:
     print("\n" + "=" * 60)
-    print(f"📧 [EUE EMAIL VERIFICATION] To: {to_email}")
-    print(f"🔑 6-Digit Verification Code: {code} (Valid for {CODE_EXPIRY_MINUTES} minutes)")
+    print(f"📧 [EUE EMAIL DISPATCH] To: {to_email}")
+    print(f"🔑 6-Digit Verification Code: [SECURE OTP GENERATED] (Expires in {CODE_EXPIRY_MINUTES} mins)")
     print("=" * 60 + "\n")
 
+    subject = f"EUE Verification Code: {code}"
+    sender_name = settings.SMTP_FROM_NAME or "EUE Schedule"
+    sender_email = settings.SMTP_USER or "eueschedulesync@gmail.com"
+
+    text_content = (
+        f"Hello {full_name},\n\n"
+        f"Your European Universities in Egypt (EUE) verification code is: {code}\n\n"
+        f"This code will expire in {CODE_EXPIRY_MINUTES} minutes.\n\n"
+        f"If you did not request this verification code, please ignore this email.\n\n"
+        f"Best regards,\n"
+        f"EUE Schedule Sync Team\n"
+        f"European Universities in Egypt"
+    )
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EUE Verification Code</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 500px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+    <tr>
+      <td style="background-color: #1a2b49; padding: 24px; text-align: center;">
+        <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 800;">EUE</h1>
+        <p style="color: #94a3b8; margin: 4px 0 0 0; font-size: 13px;">European Universities in Egypt • Schedule Sync</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px 28px;">
+        <p style="color: #334155; font-size: 16px; margin: 0 0 16px 0;">Hello <strong>{full_name}</strong>,</p>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 24px 0;">
+          Use the 6-digit verification code below to verify your student account:
+        </p>
+        <div style="background-color: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 10px; padding: 18px; text-align: center; margin: 0 0 24px 0;">
+          <span style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1a2b49; font-family: monospace;">{code}</span>
+        </div>
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin: 0 0 8px 0;">
+          ⏳ <strong>Security Note:</strong> This verification code is valid for <strong>{CODE_EXPIRY_MINUTES} minutes</strong>.
+        </p>
+        <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0;">
+          If you did not request this verification code, please ignore this email.
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="background-color: #f8fafc; padding: 16px 28px; text-align: center; border-top: 1px solid #e2e8f0;">
+        <p style="color: #94a3b8; font-size: 11px; margin: 0;">
+          European Universities in Egypt (UoL • UCLan • UEL)<br>
+          Automated Student Security Notification
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+    # 1. Option: Brevo HTTPS API (port 443)
+    if settings.BREVO_API_KEY:
+        try:
+            r = httpx.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": settings.BREVO_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                json={
+                    "sender": {"name": sender_name, "email": sender_email},
+                    "to": [{"email": to_email, "name": full_name}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content,
+                },
+                timeout=15.0
+            )
+            if r.status_code in (200, 201, 202):
+                return True, "Brevo HTTPS API"
+            print(f"Brevo API error ({r.status_code}): {r.text}")
+        except Exception as e:
+            print(f"Brevo exception: {e}")
+
+    # 2. Option: Resend HTTPS API (port 443)
+    if settings.RESEND_API_KEY:
+        try:
+            r = httpx.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": f"{sender_name} <onboarding@resend.dev>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_content,
+                    "text": text_content,
+                },
+                timeout=15.0
+            )
+            if r.status_code in (200, 201, 202):
+                return True, "Resend HTTPS API"
+            print(f"Resend API error ({r.status_code}): {r.text}")
+        except Exception as e:
+            print(f"Resend exception: {e}")
+
+    # 3. Option: Google Apps Script Webhook (port 443)
+    if settings.GAS_WEBHOOK_URL:
+        try:
+            r = httpx.post(
+                settings.GAS_WEBHOOK_URL,
+                json={
+                    "to": to_email,
+                    "name": full_name,
+                    "subject": subject,
+                    "text": text_content,
+                    "html": html_content,
+                },
+                follow_redirects=True,
+                timeout=20.0
+            )
+            if r.status_code == 200:
+                return True, "Google Apps Script HTTPS"
+            print(f"GAS error ({r.status_code}): {r.text}")
+        except Exception as e:
+            print(f"GAS exception: {e}")
+
+    # 4. Standard SMTP fallback (smtp.gmail.com:587)
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        return False
+        return False, "SMTP credentials not configured"
 
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Schedule Sync Verification Code: {code}"
-        msg["From"] = f"Schedule Sync Verification <{settings.SMTP_USER}>"
+        msg["Subject"] = subject
+        msg["From"] = f"{sender_name} <{sender_email}>"
         msg["To"] = to_email
-        msg["Reply-To"] = settings.SMTP_USER
+        msg["Reply-To"] = sender_email
         msg["Date"] = formatdate(localtime=True)
         msg["Message-ID"] = make_msgid(domain="gmail.com")
         msg["Auto-Submitted"] = "auto-generated"
-
-        text_content = (
-            f"Hello {full_name},\n\n"
-            f"Your 6-digit verification code is: {code}\n\n"
-            f"This code will expire in {CODE_EXPIRY_MINUTES} minutes.\n\n"
-            f"Best regards,\nStudent Schedule Sync Team"
-        )
-        html_content = f"""<html>
-<body style="font-family: Arial, sans-serif; background-color: #F8FAFC; margin: 0; padding: 20px;">
-  <div style="max-width: 500px; margin: 0 auto; background: #ffffff; padding: 24px; border: 1px solid #E2E8F0; border-radius: 10px;">
-    <h2 style="color: #1A2B49; margin-top: 0;">Schedule Sync</h2>
-    <p style="color: #334155; font-size: 15px;">Hello <strong>{full_name}</strong>,</p>
-    <p style="color: #334155; font-size: 14px;">Use the 6-digit verification code below to verify your student account:</p>
-    <div style="background-color: #F1F5F9; padding: 16px; border-radius: 8px; text-align: center; margin: 20px 0;">
-      <span style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #1E3A8A;">{code}</span>
-    </div>
-    <p style="color: #64748B; font-size: 12px; margin-bottom: 0;">This code expires in {CODE_EXPIRY_MINUTES} minutes. If you did not request this, please ignore this email.</p>
-  </div>
-</body>
-</html>"""
 
         msg.attach(MIMEText(text_content, "plain", "utf-8"))
         msg.attach(MIMEText(html_content, "html", "utf-8"))
@@ -85,10 +196,11 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> bool:
             server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.sendmail(settings.SMTP_USER, [to_email], msg.as_string())
-        return True
+        return True, "SMTP (smtp.gmail.com:587)"
     except Exception as e:
-        print(f"SMTP Warning: {e}")
-        return False
+        err_msg = f"SMTP dispatch failed: {str(e)}"
+        print(err_msg)
+        return False, err_msg
 
 
 @router.post("/send-verification-code")
@@ -127,17 +239,16 @@ def request_verification_code(
         db.add(db_record)
     db.commit()
 
-    sent_via_smtp = _send_verification_email(req.email.lower(), req.full_name, code)
-    if sent_via_smtp:
-        return {
-            "message": f"A 6-digit verification code has been sent to {req.email}.",
-            "smtp_sent": True,
-            "dev_code": code,
-        }
+    success, method_or_err = _send_verification_email(req.email.lower(), req.full_name, code)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Email delivery failed ({method_or_err}). Please check that your email address is correct and try again."
+        )
+
     return {
-        "message": f"Verification code generated for {req.email}.",
-        "smtp_sent": False,
-        "dev_code": code,
+        "message": f"Verification code sent to {req.email}. Please check your Outlook Inbox, 'Other' tab, and Junk folder (may take 15-30 seconds).",
+        "email_sent": True
     }
 
 

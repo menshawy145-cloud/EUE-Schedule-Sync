@@ -91,11 +91,7 @@ export const RegisterScreen = ({ navigation }) => {
         full_name: fullName.trim(),
       });
       setCodeSent(true);
-      if (res.dev_code) {
-        setInfoMessage(`📧 Code sent to ${fullEmail}! (Your Code: ${res.dev_code})`);
-      } else {
-        setInfoMessage(`📧 Code sent to ${fullEmail}! Check your Outlook Inbox, "Other" tab, and Junk folder.`);
-      }
+      setInfoMessage(`📧 Verification code sent to ${fullEmail}. Please check your Outlook Inbox, 'Other' tab, and Junk folder (may take 15-30 seconds).`);
     } catch (err) {
       setErrorMessage(err.message || 'Could not send verification code.');
     } finally {

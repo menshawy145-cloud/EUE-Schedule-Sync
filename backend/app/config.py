@@ -20,12 +20,17 @@ class Settings(BaseSettings):
     # Server-side only API keys (Never exposed to frontend)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
-    # SMTP Settings
+    # Transactional Email APIs (HTTPS port 443 alternatives)
+    BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "")
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    GAS_WEBHOOK_URL: str = os.getenv("GAS_WEBHOOK_URL", "")
+
+    # SMTP Settings (TLS port 587)
     SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
-    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "EUE")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "EUE Schedule")
 
     ALLOWED_EMAIL_DOMAINS: List[str] = [
         "uol.eue.edu.eg",
