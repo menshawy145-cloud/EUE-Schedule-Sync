@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -57,12 +57,22 @@ function NavigationRoot() {
             <Stack.Screen
               name="FriendSchedule"
               component={FriendScheduleScreen}
-              options={{
+              options={({ navigation }) => ({
                 headerShown: true,
                 title: "Friend's Schedule",
                 headerStyle: { backgroundColor: colors.primary },
                 headerTintColor: '#fff',
-              }}
+                headerTitleStyle: { fontWeight: '700' },
+                headerLeft: () => (
+                  <TouchableOpacity
+                    onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MainTabs'))}
+                    style={{ paddingRight: 12, paddingVertical: 6 }}
+                    accessibilityLabel="Go Back"
+                  >
+                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>← Back</Text>
+                  </TouchableOpacity>
+                ),
+              })}
             />
           </>
         ) : (

@@ -57,8 +57,19 @@ export const FriendScheduleScreen = ({ route, navigation }) => {
     <View style={styles.container}>
       {/* Header Banner */}
       <View style={styles.banner}>
-        <Text style={styles.friendName}>{friendName}'s Timetable</Text>
-        <Text style={styles.studentId}>Student ID: #{studentId} • Verified EUE Peer</Text>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MainTabs'))}
+            accessibilityLabel="Go Back"
+          >
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.friendName}>{friendName}'s Timetable</Text>
+            <Text style={styles.studentId}>Student ID: #{studentId} • Verified EUE Peer</Text>
+          </View>
+        </View>
       </View>
 
       {/* Day Selector */}
@@ -119,6 +130,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   banner: { backgroundColor: colors.primary, padding: spacing.md },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  backBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   friendName: { fontSize: 18, fontWeight: '700', color: '#fff' },
   studentId: { fontSize: 12, color: '#A0AEC0', marginTop: 2 },
   dayScroll: { maxHeight: 50, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
