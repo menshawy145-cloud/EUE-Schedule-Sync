@@ -31,6 +31,12 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 CODE_EXPIRY_MINUTES = 10
 
 
+class _GASRedirectHandler(_urllib_req.HTTPRedirectHandler):
+    """Handle 302 redirects from script.google.com to script.googleusercontent.com."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return _urllib_req.Request(newurl, headers={"User-Agent": "Mozilla/5.0"})
+
+
 def _set_secure_session_cookie(response: Response, token: str):
     """Item #9: Set HttpOnly, SameSite=Lax, Secure session cookie."""
     response.set_cookie(
@@ -110,7 +116,50 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
 </body>
 </html>"""
 
-    # 1. Primary: Brevo HTTPS API (port 443) - supports PythonAnywhere outbound proxy
+    # -------------------------------------------------------------------------
+    # 1. Tier 1 (PRIMARY): Google Apps Script Webhook
+    #    Sends directly from Google's core mail cluster (mail-*.google.com).
+    #    Bypasses Barracuda greylisting (451 Server too busy) in 2 seconds.
+    # -------------------------------------------------------------------------
+    gas_url = (settings.GAS_WEBHOOK_URL or "").strip()
+    if not gas_url:
+        gas_url = "https://script.google.com/macros/s/AKfycbxxHzj1TdJEE85jl5ywmRxOAl0XQVa-sbCoRQMMYrDiQHuuw_jWAk_lXPm7q7ap09li/exec"
+
+    if gas_url:
+        payload = _json.dumps({
+            "to": to_email,
+            "subject": subject,
+            "text": text_content,
+            "html": html_content,
+        }).encode("utf-8")
+
+        candidate_proxies = [
+            {"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"},
+            {}
+        ]
+        for p_dict in candidate_proxies:
+            try:
+                handlers = [_GASRedirectHandler()]
+                if p_dict:
+                    handlers.append(_urllib_req.ProxyHandler(p_dict))
+                opener = _urllib_req.build_opener(*handlers)
+                req = _urllib_req.Request(
+                    gas_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+                    method="POST",
+                )
+                with opener.open(req, timeout=20) as resp:
+                    if resp.status == 200:
+                        body = resp.read().decode("utf-8", errors="replace")
+                        print(f"GAS Webhook response ({resp.status}): {body}")
+                        return True, "Google Apps Script Relay (Instant)"
+            except Exception as e:
+                print(f"GAS attempt failed (proxy={bool(p_dict)}): {e}")
+
+    # -------------------------------------------------------------------------
+    # 2. Tier 2: Brevo HTTPS API (port 443)
+    # -------------------------------------------------------------------------
     brevo_key = settings.BREVO_API_KEY.strip() if settings.BREVO_API_KEY else ""
     if brevo_key:
         payload = _json.dumps({
@@ -121,7 +170,6 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
             "textContent": text_content,
         }).encode("utf-8")
 
-        # Try with PythonAnywhere proxy first, then direct
         candidate_proxies = [
             {"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"},
             {}
@@ -148,34 +196,9 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
             except Exception as e:
                 print(f"Brevo attempt failed (proxy={bool(p_dict)}): {e}")
 
-    # 2. Secondary: Resend HTTPS API (port 443)
-    if settings.RESEND_API_KEY:
-        try:
-            opener = _urllib_req.build_opener(_urllib_req.ProxyHandler({"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"}))
-            payload = _json.dumps({
-                "from": f"{sender_name} <onboarding@resend.dev>",
-                "to": [to_email],
-                "subject": subject,
-                "html": html_content,
-                "text": text_content,
-            }).encode("utf-8")
-
-            req = _urllib_req.Request(
-                "https://api.resend.com/emails",
-                data=payload,
-                headers={
-                    "Authorization": f"Bearer {settings.RESEND_API_KEY.strip()}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            with opener.open(req, timeout=15) as resp:
-                if resp.status in (200, 201, 202):
-                    return True, "Resend HTTPS API"
-        except Exception as e:
-            print(f"Resend exception: {e}")
-
-    # 3. Fallback: SMTP (smtp.gmail.com:587)
+    # -------------------------------------------------------------------------
+    # 3. Tier 3: SMTP (smtp.gmail.com:587) fallback
+    # -------------------------------------------------------------------------
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         return False, "Email service not configured"
 
@@ -214,7 +237,7 @@ def request_verification_code(
     client_ip = request.client.host if request.client else "unknown"
     rate_limiter.check(f"otp:{client_ip}", max_requests=10, window_seconds=300)
 
-    # If the user already exists, check if it's the tester account so re-verifying can be tested
+    # If the user already exists, allow re-verifying if it's the test/founder account
     existing_user = get_by_email(db, email=req.email)
     if existing_user:
         if req.email.lower() == "mohamed.elmenshawy26@uol.eue.edu.eg":
