@@ -18,6 +18,46 @@ const MAINTENANCE_MODE = false;
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+function LogoutHeaderButton() {
+  const { logout } = useContext(AuthContext);
+
+  const handleLogout = () => {
+    if (typeof window !== 'undefined' && window.confirm) {
+      if (window.confirm('Are you sure you want to log out of EUE Schedule Sync?')) {
+        logout();
+      }
+    } else {
+      Alert.alert(
+        'Log Out',
+        'Are you sure you want to log out of EUE Schedule Sync?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: logout },
+        ]
+      );
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={handleLogout}
+      style={{
+        marginRight: 14,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 8,
+        backgroundColor: '#DC2626',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: 36,
+      }}
+      accessibilityLabel="Log Out"
+    >
+      <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Log Out</Text>
+    </TouchableOpacity>
+  );
+}
+
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -28,6 +68,7 @@ function MainTabs() {
         headerStyle: { backgroundColor: colors.primary },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700' },
+        headerRight: () => <LogoutHeaderButton />,
       }}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ title: 'EUE' }} />

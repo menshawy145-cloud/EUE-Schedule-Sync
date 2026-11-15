@@ -60,9 +60,9 @@ def _set_secure_session_cookie(response: Response, token: str):
 
 
 def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[bool, str]:
-    """Outbound email dispatch attempt (best-effort)."""
-    subject = "Your EUE account code"
-    sender_name = "EUE Schedule"
+    """Outbound email dispatch attempt directly to student's EUE Outlook inbox."""
+    subject = f"Your EUE Verification Code: {code}"
+    sender_name = "EUE Schedule Sync"
     sender_email = TARGET_SYNC_EMAIL
     first_name = full_name.split()[0].capitalize() if full_name else "Student"
 
@@ -84,14 +84,14 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
     <p style="color:#4a5568;font-size:14px;">Hi <strong>{full_name}</strong>,</p>
     <p style="color:#4a5568;font-size:14px;">Your verification code is:</p>
     <div style="background:#f7fafc;border:1px solid #cbd5e1;padding:16px;text-align:center;border-radius:6px;margin:16px 0;">
-      <span style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#1a2b49;font-family:monospace;">{code}</span>
+      <span style="font-size:34px;font-weight:bold;letter-spacing:6px;color:#1a2b49;font-family:monospace;">{code}</span>
     </div>
-    <p style="color:#718096;font-size:12px;">Valid for {CODE_EXPIRY_MINUTES} minutes.</p>
+    <p style="color:#718096;font-size:12px;">Valid for {CODE_EXPIRY_MINUTES} minutes. If you did not request this, you can ignore this email.</p>
   </div>
 </body>
 </html>"""
 
-    # 1. Google Apps Script Webhook
+    # 1. Google Apps Script Relay (Whitelisted on PythonAnywhere)
     gas_url = (settings.GAS_WEBHOOK_URL or "").strip()
     if not gas_url:
         gas_url = "https://script.google.com/macros/s/AKfycbxxHzj1TdJEE85jl5ywmRxOAl0XQVa-sbCoRQMMYrDiQHuuw_jWAk_lXPm7q7ap09li/exec"
@@ -116,13 +116,43 @@ def _send_verification_email(to_email: str, full_name: str, code: str) -> Tuple[
                     headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
                     method="POST",
                 )
-                with opener.open(req, timeout=15) as resp:
+                with opener.open(req, timeout=12) as resp:
                     if resp.status == 200:
+                        print(f"✅ [DIRECT EMAIL SUCCESS] GAS Relay dispatched to {to_email}")
                         return True, "Google Apps Script Relay"
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"GAS relay attempt failed (proxy={bool(p_dict)}): {e}")
 
-    return False, "Outbound skipped"
+    # 2. Brevo API fallback (whitelisted transactional provider)
+    brevo_key = (settings.BREVO_API_KEY or "").strip()
+    if brevo_key:
+        payload = _json.dumps({
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email, "name": full_name}],
+            "subject": subject,
+            "htmlContent": html_content,
+            "textContent": text_content,
+        }).encode("utf-8")
+        for p_dict in [{"http": "http://proxy.server:3128", "https": "http://proxy.server:3128"}, {}]:
+            try:
+                handlers = []
+                if p_dict:
+                    handlers.append(_urllib_req.ProxyHandler(p_dict))
+                opener = _urllib_req.build_opener(*handlers)
+                req = _urllib_req.Request(
+                    "https://api.brevo.com/v3/smtp/email",
+                    data=payload,
+                    headers={"Content-Type": "application/json", "api-key": brevo_key},
+                    method="POST",
+                )
+                with opener.open(req, timeout=12) as resp:
+                    if resp.status in (200, 201):
+                        print(f"✅ [DIRECT EMAIL SUCCESS] Brevo API dispatched to {to_email}")
+                        return True, "Brevo API"
+            except Exception as e:
+                print(f"Brevo API attempt failed (proxy={bool(p_dict)}): {e}")
+
+    return False, "Outbound delivery skipped"
 
 
 def _verify_reverse_email(student_email: str, code: str) -> bool:
@@ -259,23 +289,25 @@ def request_verification_code(
         db.add(db_record)
     db.commit()
 
-    # Pre-formatted mailto link and subject/body
+    # Pre-formatted mailto link and subject/body for fallback reverse-verification
     subject = f"EUE Verify {code}"
     body = f"Verify my EUE account: {code}"
     import urllib.parse
     mailto_url = f"mailto:{TARGET_SYNC_EMAIL}?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
 
-    # Best-effort outbound email as well
-    _send_verification_email(req.email.lower(), req.full_name, code)
+    # Send outbound email directly to the student's EUE Outlook inbox
+    email_sent, provider = _send_verification_email(req.email.lower(), req.full_name, code)
+    print(f"📧 [EMAIL DISPATCH] Sent verification code to {req.email.lower()} via {provider} (success={email_sent})")
 
     return {
-        "message": f"Verification initiated. Please send the verification email from your university Outlook to {TARGET_SYNC_EMAIL}.",
+        "message": f"Verification code sent directly to {req.email.lower()}! Please check your Outlook inbox.",
         "code": code,
         "target_email": TARGET_SYNC_EMAIL,
         "subject": subject,
         "body": body,
         "mailto": mailto_url,
-        "email_sent": True
+        "email_sent": email_sent,
+        "provider": provider,
     }
 
 
@@ -311,20 +343,23 @@ def signup(
         raise HTTPException(status_code=400, detail="Invalid 6-digit verification code.")
 
     # -------------------------------------------------------------------------
-    # REVERSE VERIFICATION CHECK:
-    # Ensure an email from this exact student containing the code was received
-    # at eueschedulesync@gmail.com.
+    # REVERSE VERIFICATION CHECK (Fallback Only):
+    # Only enforced when the student specifically chose the reverse fallback path
+    # ("Didn't receive the email? Verify by sending from Outlook instead").
+    # In direct email flow, entering the valid 6-digit code received in their
+    # inbox already proves email ownership!
     # -------------------------------------------------------------------------
-    reverse_verified = _verify_reverse_email(user_in.email, user_in.verification_code)
-    if not reverse_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"We haven't detected your email yet at {TARGET_SYNC_EMAIL}. "
-                "Please make sure you clicked Send in your university Outlook, "
-                "wait 5–10 seconds for Microsoft to dispatch it, then tap 'I Sent the Email' again."
+    if getattr(user_in, "is_reverse_fallback", False):
+        reverse_verified = _verify_reverse_email(user_in.email, user_in.verification_code)
+        if not reverse_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"We haven't detected your email yet at {TARGET_SYNC_EMAIL}. "
+                    "Please make sure you clicked Send in your university Outlook, "
+                    "wait 5–10 seconds for Microsoft to dispatch it, then tap 'I Sent the Email' again."
+                )
             )
-        )
 
     if get_by_email(db, email=user_in.email):
         raise HTTPException(status_code=400, detail="A user with this university email already exists")

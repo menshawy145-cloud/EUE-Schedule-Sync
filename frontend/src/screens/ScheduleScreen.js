@@ -11,6 +11,7 @@ import {
   Platform,
   Image,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../services/api';
 import { CourseCard } from '../components/CourseCard';
 import { colors, spacing } from '../styles/theme';
@@ -63,6 +64,12 @@ export const ScheduleScreen = () => {
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchSchedules();
+    }, [fetchSchedules])
+  );
 
   // Open Real File Picker on Web / Mobile (Accepts Images and PDFs)
   const handlePickTimetableFile = () => {
@@ -214,13 +221,25 @@ export const ScheduleScreen = () => {
     <View style={styles.container}>
       {/* Top Action Bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.scanBtn} onPress={handlePickTimetableFile}>
-          <Text style={styles.scanBtnText}>📸 Upload Timetable (Photo / PDF)</Text>
+        <TouchableOpacity style={styles.scanBtn} onPress={handlePickTimetableFile} accessibilityLabel="Upload Timetable">
+          <Text style={styles.scanBtnText}>📸 Upload Timetable</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)} accessibilityLabel="Add Course">
           <Text style={styles.addBtnText}>+ Add Course</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.clearBtn} onPress={handleClearAll}>
+        <TouchableOpacity
+          style={styles.refreshBtn}
+          onPress={fetchSchedules}
+          disabled={loading}
+          accessibilityLabel="Refresh Schedule"
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.clearBtn} onPress={handleClearAll} accessibilityLabel="Reset All">
           <Text style={styles.clearBtnText}>Reset All</Text>
         </TouchableOpacity>
       </View>
@@ -459,35 +478,54 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   topBar: {
     flexDirection: 'row',
-    padding: spacing.md,
+    padding: spacing.sm,
     backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   scanBtn: {
     backgroundColor: colors.accent,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
-    marginRight: 6,
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   scanBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   addBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
-    marginRight: 6,
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   addBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  refreshBtn: {
+    backgroundColor: '#0284C7',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   clearBtn: {
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
+    minHeight: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   clearBtnText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
   dayScroll: { maxHeight: 50, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -587,7 +625,7 @@ const styles = StyleSheet.create({
   },
   periodChipText: { fontSize: 11, fontWeight: '600', color: colors.primary },
   label: { fontSize: 12, fontWeight: '600', color: colors.textPrimary, marginBottom: 4 },
-  input: { backgroundColor: colors.inputBg, borderRadius: 8, padding: 10, fontSize: 14, marginBottom: spacing.sm },
+  input: { backgroundColor: colors.inputBg, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: spacing.sm, minHeight: 44 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.md },
   cancelBtn: { paddingHorizontal: 16, paddingVertical: 10, marginRight: spacing.sm },

@@ -37,13 +37,14 @@ export const AuthProvider = ({ children }) => {
     return me;
   };
 
-  const signup = async (email, studentId, fullName, password, verificationCode) => {
+  const signup = async (email, studentId, fullName, password, verificationCode, isReverseFallback = false) => {
     const res = await api.auth.signup({
       email,
       student_id: studentId,
       full_name: fullName,
       password,
       verification_code: verificationCode,
+      is_reverse_fallback: isReverseFallback,
     });
     await AsyncStorage.setItem('@eue_auth_token', res.access_token);
     setToken(res.access_token);

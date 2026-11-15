@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { AuthContext } from '../context/AuthContext';
 import { api } from '../services/api';
 import { CourseCard } from '../components/CourseCard';
@@ -7,12 +8,35 @@ import { FriendCard } from '../components/FriendCard';
 import { colors, spacing } from '../styles/theme';
 import { formatTime12h } from '../utils/timeFormat';
 
+const getCairoTimeStr = () => {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Africa/Cairo',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toLocaleTimeString();
+  }
+};
+
 export const DashboardScreen = ({ navigation }) => {
-  const { user, logout } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [friendFilter, setFriendFilter] = useState('ALL'); // 'ALL' | 'FREE' | 'IN_CLASS' | 'OFF_CAMPUS'
+
+  // Live ticking Cairo clock
+  const [liveClock, setLiveClock] = useState(getCairoTimeStr());
+  useEffect(() => {
+    const clockTimer = setInterval(() => {
+      setLiveClock(getCairoTimeStr());
+    }, 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
 
   // Time-shift state: 'NOW' | 'NEXT_BREAK' | 'TOMORROW'
   const [timeMode, setTimeMode] = useState('NOW');
@@ -44,9 +68,27 @@ export const DashboardScreen = ({ navigation }) => {
     }
   }, [timeMode, tomorrowTime]);
 
+  // Initial load
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  // Auto-refresh every 60 seconds
+  useEffect(() => {
+    const autoRefreshTimer = setInterval(() => {
+      if (timeMode === 'NOW') {
+        fetchDashboard('NOW', tomorrowTime);
+      }
+    }, 60000);
+    return () => clearInterval(autoRefreshTimer);
+  }, [fetchDashboard, timeMode, tomorrowTime]);
+
+  // Auto-refresh whenever returning to Dashboard tab
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboard(timeMode, tomorrowTime);
+    }, [fetchDashboard, timeMode, tomorrowTime])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -65,7 +107,7 @@ export const DashboardScreen = ({ navigation }) => {
     fetchDashboard('TOMORROW', tTime);
   };
 
-  if (loading) {
+  if (loading && !dashboardData) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -90,16 +132,25 @@ export const DashboardScreen = ({ navigation }) => {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1, minWidth: 150 }}>
           <Text style={styles.welcomeText}>Welcome back,</Text>
           <Text style={styles.userName}>{user?.full_name}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={styles.headerRightGroup}>
           <View style={styles.studentBadge}>
             <Text style={styles.studentBadgeText}>ID: {user?.student_id}</Text>
           </View>
-          <TouchableOpacity onPress={logout} style={{ marginLeft: 8, backgroundColor: '#FEE2E2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 }}>
-            <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '700' }}>Log Out</Text>
+          <TouchableOpacity
+            onPress={onRefresh}
+            style={styles.refreshBtn}
+            disabled={refreshing}
+            accessibilityLabel="Refresh Dashboard"
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -167,7 +218,7 @@ export const DashboardScreen = ({ navigation }) => {
               : (timeMode === 'TOMORROW' ? '🟢 Free on Campus at Tomorrow Preview Time' : timeMode === 'NEXT_BREAK' ? '🟢 Free on Campus at Next Break' : '🟢 You are Free on Campus Right Now')}
           </Text>
           <Text style={styles.dayTimeText}>
-            {dashboardData?.today_day} • {formatTime12h(dashboardData?.current_time)}
+            {dashboardData?.today_day} • {timeMode === 'NOW' ? `Cairo: ${liveClock}` : formatTime12h(dashboardData?.current_time)}
           </Text>
         </View>
 
@@ -268,16 +319,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginVertical: spacing.md,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   welcomeText: { fontSize: 13, color: colors.textSecondary },
   userName: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   studentBadge: {
     backgroundColor: colors.primary,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 20,
+    minHeight: 36,
+    justifyContent: 'center',
   },
   studentBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  refreshBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  refreshBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   timeSwitchContainer: {
     backgroundColor: colors.card,
     borderRadius: 12,

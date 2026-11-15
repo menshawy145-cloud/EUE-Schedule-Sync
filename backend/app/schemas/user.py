@@ -50,6 +50,7 @@ class VerificationCodeRequest(BaseModel):
 class UserCreate(UserBase):
     password: str
     verification_code: str
+    is_reverse_fallback: Optional[bool] = False
     honeypot: Optional[str] = ""  # Item #12: Bot honeypot trap
 
     class Config:

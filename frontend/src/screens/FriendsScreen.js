@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator, Modal } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../services/api';
 import { colors, spacing } from '../styles/theme';
 
@@ -39,6 +40,12 @@ export const FriendsScreen = ({ navigation }) => {
   useEffect(() => {
     loadSocialData();
   }, [loadSocialData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadSocialData();
+    }, [loadSocialData])
+  );
 
   const handleSearch = async () => {
     if (!searchId.trim()) return;
@@ -184,7 +191,21 @@ export const FriendsScreen = ({ navigation }) => {
 
         <View style={styles.section}>
           <View style={styles.friendsHeaderRow}>
-            <Text style={styles.sectionTitle}>Connected Friends ({friends.length})</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={styles.sectionTitle}>Connected Friends ({friends.length})</Text>
+              <TouchableOpacity
+                style={styles.refreshBtn}
+                onPress={loadSocialData}
+                disabled={loading}
+                accessibilityLabel="Refresh Friends"
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
+                )}
+              </TouchableOpacity>
+            </View>
             {friends.length >= 2 && (
               <TouchableOpacity
                 style={[styles.groupToggleBtn, isGroupMode && styles.groupToggleBtnActive]}
@@ -350,9 +371,9 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background, padding: spacing.md },
   searchSection: { backgroundColor: colors.card, borderRadius: 12, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  searchRow: { flexDirection: 'row' },
-  searchInput: { flex: 1, backgroundColor: colors.inputBg, borderRadius: 8, padding: 10, fontSize: 14, marginRight: spacing.sm },
-  searchBtn: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
+  searchRow: { flexDirection: 'row', gap: 8 },
+  searchInput: { flex: 1, backgroundColor: colors.inputBg, borderRadius: 8, padding: 10, fontSize: 16, minHeight: 44 },
+  searchBtn: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', minHeight: 44 },
   searchBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   searchCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
   resultName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary },
@@ -378,8 +399,10 @@ const styles = StyleSheet.create({
   removeText: { color: colors.textSecondary, fontSize: 14 },
   emptyContainer: { padding: spacing.lg, alignItems: 'center' },
   emptyText: { color: colors.textSecondary, fontSize: 13, textAlign: 'center' },
-  friendsHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
-  groupToggleBtn: { backgroundColor: colors.accentLight || '#EDE9FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.accent },
+  friendsHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, flexWrap: 'wrap', gap: 8 },
+  refreshBtn: { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, minHeight: 32, justifyContent: 'center', alignItems: 'center' },
+  refreshBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  groupToggleBtn: { backgroundColor: colors.accentLight || '#EDE9FE', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: colors.accent, minHeight: 32, justifyContent: 'center' },
   groupToggleBtnActive: { backgroundColor: '#FEE2E2', borderColor: '#EF4444' },
   groupToggleText: { color: colors.accent, fontSize: 12, fontWeight: '700' },
   groupToggleTextActive: { color: '#DC2626' },

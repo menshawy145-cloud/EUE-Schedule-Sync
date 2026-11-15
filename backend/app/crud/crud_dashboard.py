@@ -1,10 +1,20 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.crud.crud_schedule import get_user_schedules
 from app.crud.crud_friendship import get_accepted_friends
 from app.schemas.dashboard import DashboardResponse, CurrentCourseStatus, FreeFriendItem
 from app.schemas.schedule import ScheduleResponse
+
+def _get_cairo_now() -> datetime:
+    """Return the current datetime localized to Africa/Cairo (UTC+2 / EET)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Africa/Cairo"))
+    except Exception:
+        # Fallback for systems without tzdata: Cairo is UTC+2
+        cairo_tz = timezone(timedelta(hours=2))
+        return datetime.now(cairo_tz)
 
 def _time_str_to_seconds(t_str: str) -> int:
     parts = t_str.split(":")
@@ -32,7 +42,8 @@ def calculate_dashboard(
     day_offset: int = 0,
     target_time: Optional[str] = None
 ) -> DashboardResponse:
-    target_dt = now or datetime.now()
+    # Always default to Cairo local time (Africa/Cairo)
+    target_dt = now or _get_cairo_now()
     if day_offset:
         target_dt = target_dt + timedelta(days=day_offset)
 

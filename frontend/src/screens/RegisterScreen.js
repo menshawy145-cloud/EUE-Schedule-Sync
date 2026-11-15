@@ -30,9 +30,11 @@ export const RegisterScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // Reverse Email Verification States
+  // Email Verification States
   const [codeSent, setCodeSent] = useState(false);
+  const [enteredCode, setEnteredCode] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
+  const [showFallback, setShowFallback] = useState(false);
   const [targetEmail, setTargetEmail] = useState('eueschedulesync@gmail.com');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
@@ -106,24 +108,27 @@ export const RegisterScreen = ({ navigation }) => {
       });
       setCodeSent(true);
       setVerificationCode(res.code || '');
+      setEnteredCode('');
       setTargetEmail(res.target_email || 'eueschedulesync@gmail.com');
       setEmailSubject(res.subject || `EUE Verify ${res.code}`);
       setEmailBody(res.body || `Verify my EUE account: ${res.code}`);
       setMailtoUrl(res.mailto || '');
-      setInfoMessage('Reverse verification active! Send the pre-filled email from your university Outlook, then tap "I Sent the Email".');
+      setInfoMessage(`✉️ Verification code sent directly to ${fullEmail}! Please check your Outlook inbox (and junk/spam folder) and enter the 6-digit code below.`);
     } catch (err) {
-      setErrorMessage(err.message || 'Could not initiate verification.');
+      setErrorMessage(err.message || 'Could not send verification code.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerifyAndRegister = async () => {
+  // Direct flow: student enters the 6-digit code received in their email
+  const handleDirectVerifyAndRegister = async () => {
     setErrorMessage('');
     if (!validateFormFields()) return;
 
-    if (!verificationCode || !verificationCode.trim()) {
-      setErrorMessage('Verification code is missing. Please click "Verify University Email" first.');
+    const code = enteredCode.trim();
+    if (!code || !/^\d{6}$/.test(code)) {
+      setErrorMessage('Please enter the 6-digit verification code sent to your university email.');
       return;
     }
 
@@ -135,10 +140,39 @@ export const RegisterScreen = ({ navigation }) => {
         studentId.trim(),
         fullName.trim(),
         password,
-        verificationCode.trim()
+        code,
+        false // isReverseFallback = false
       );
     } catch (err) {
-      setErrorMessage(err.message || 'Registration failed.');
+      setErrorMessage(err.message || 'Verification failed. Please check your code or use Outlook verification below.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fallback flow: student sends verification email from Outlook to eueschedulesync@gmail.com
+  const handleFallbackVerifyAndRegister = async () => {
+    setErrorMessage('');
+    if (!validateFormFields()) return;
+
+    if (!verificationCode || !verificationCode.trim()) {
+      setErrorMessage('Verification code is missing. Please click "Send 6-Digit Verification Code" first.');
+      return;
+    }
+
+    const fullEmail = buildValidatedEmail();
+    try {
+      setLoading(true);
+      await signup(
+        fullEmail,
+        studentId.trim(),
+        fullName.trim(),
+        password,
+        verificationCode.trim(),
+        true // isReverseFallback = true
+      );
+    } catch (err) {
+      setErrorMessage(err.message || 'Reverse verification failed. Make sure you dispatched the email from your Outlook.');
     } finally {
       setLoading(false);
     }
@@ -248,77 +282,105 @@ export const RegisterScreen = ({ navigation }) => {
               {loading ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.registerBtnText}>✉️ Verify University Email</Text>
+                <Text style={styles.registerBtnText}>✉️ Send 6-Digit Verification Code</Text>
               )}
             </TouchableOpacity>
           ) : (
             <View style={styles.verificationSection}>
               <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>STEP 1: SEND EMAIL FROM YOUR OUTLOOK</Text>
+                <Text style={styles.stepBadgeText}>ENTER 6-DIGIT CODE SENT TO YOUR EMAIL</Text>
               </View>
               <Text style={styles.stepDesc}>
-                Tap below to open your EUE Outlook with the pre-filled verification code, then press Send:
+                Check your university Outlook inbox (and junk/spam folder) for the verification code sent to {buildValidatedEmail()}:
               </Text>
 
-              <TouchableOpacity
-                style={styles.openOutlookBtn}
-                onPress={() => {
-                  if (mailtoUrl) {
-                    Linking.openURL(mailtoUrl).catch(() => {
-                      setErrorMessage('Could not open default mail client. Please copy the details below and send from Outlook.');
-                    });
-                  }
-                }}
-              >
-                <Text style={styles.openOutlookBtnText}>✉️ Open EUE Outlook & Send Email</Text>
-              </TouchableOpacity>
+              <TextInput
+                style={[styles.input, styles.codeInput]}
+                placeholder="123456"
+                placeholderTextColor={colors.textSecondary}
+                value={enteredCode}
+                onChangeText={setEnteredCode}
+                keyboardType="numeric"
+                maxLength={6}
+                autoFocus
+              />
 
-              <View style={styles.fallbackBox}>
-                <Text style={styles.fallbackTitle}>Or send manually from your Outlook:</Text>
-                
-                <View style={styles.fallbackRow}>
-                  <Text style={styles.fallbackLabel}>To:</Text>
-                  <Text style={styles.fallbackVal} selectable>{targetEmail}</Text>
-                  <TouchableOpacity onPress={() => copyText(targetEmail, 'to')} style={styles.copyBtn}>
-                    <Text style={styles.copyBtnText}>{copiedField === 'to' ? '✓ Copied' : 'Copy'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.fallbackRow}>
-                  <Text style={styles.fallbackLabel}>Subject:</Text>
-                  <Text style={styles.fallbackVal} selectable>{emailSubject}</Text>
-                  <TouchableOpacity onPress={() => copyText(emailSubject, 'sub')} style={styles.copyBtn}>
-                    <Text style={styles.copyBtnText}>{copiedField === 'sub' ? '✓ Copied' : 'Copy'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.fallbackRow}>
-                  <Text style={styles.fallbackLabel}>Body:</Text>
-                  <Text style={styles.fallbackVal} selectable>{emailBody}</Text>
-                  <TouchableOpacity onPress={() => copyText(emailBody, 'body')} style={styles.copyBtn}>
-                    <Text style={styles.copyBtnText}>{copiedField === 'body' ? '✓ Copied' : 'Copy'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={[styles.stepBadge, { marginTop: spacing.md }]}>
-                <Text style={styles.stepBadgeText}>STEP 2: CONFIRM & COMPLETE SIGNUP</Text>
-              </View>
-              <Text style={styles.stepDesc}>
-                Once you click Send in Outlook, wait 5–10 seconds, then tap below:
-              </Text>
-
-              <TouchableOpacity style={styles.registerBtn} onPress={handleVerifyAndRegister} disabled={loading}>
+              <TouchableOpacity style={styles.registerBtn} onPress={handleDirectVerifyAndRegister} disabled={loading}>
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.registerBtnText}>🚀 I Sent the Email — Create My Account</Text>
+                  <Text style={styles.registerBtnText}>🚀 Verify & Create My Account</Text>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity onPress={handleSendVerificationCode} style={styles.resendBtn} disabled={loading}>
-                <Text style={styles.resendText}>Generate New Verification Code</Text>
+                <Text style={styles.resendText}>🔄 Resend Code to University Email</Text>
               </TouchableOpacity>
+
+              {/* Secondary Fallback: Verify by sending from Outlook */}
+              <View style={styles.fallbackToggleContainer}>
+                <TouchableOpacity
+                  style={styles.fallbackToggleBtn}
+                  onPress={() => setShowFallback(!showFallback)}
+                >
+                  <Text style={styles.fallbackToggleBtnText}>
+                    {showFallback ? '▲ Hide Outlook Fallback' : "✉️ Didn't receive the email? Verify by sending from Outlook instead ▾"}
+                  </Text>
+                </TouchableOpacity>
+
+                {showFallback && (
+                  <View style={styles.fallbackBox}>
+                    <Text style={styles.fallbackTitle}>
+                      If university spam filters delay incoming emails, you can verify instantly by sending an email from your university Outlook:
+                    </Text>
+
+                    <TouchableOpacity
+                      style={styles.openOutlookBtn}
+                      onPress={() => {
+                        if (mailtoUrl) {
+                          Linking.openURL(mailtoUrl).catch(() => {
+                            setErrorMessage('Could not open mail app. Please copy the details below and send from Outlook.');
+                          });
+                        }
+                      }}
+                    >
+                      <Text style={styles.openOutlookBtnText}>✉️ Open EUE Outlook & Send Email</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.fallbackRow}>
+                      <Text style={styles.fallbackLabel}>To:</Text>
+                      <Text style={styles.fallbackVal} selectable>{targetEmail}</Text>
+                      <TouchableOpacity onPress={() => copyText(targetEmail, 'to')} style={styles.copyBtn}>
+                        <Text style={styles.copyBtnText}>{copiedField === 'to' ? '✓ Copied' : 'Copy'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.fallbackRow}>
+                      <Text style={styles.fallbackLabel}>Subject:</Text>
+                      <Text style={styles.fallbackVal} selectable>{emailSubject}</Text>
+                      <TouchableOpacity onPress={() => copyText(emailSubject, 'sub')} style={styles.copyBtn}>
+                        <Text style={styles.copyBtnText}>{copiedField === 'sub' ? '✓ Copied' : 'Copy'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.fallbackRow}>
+                      <Text style={styles.fallbackLabel}>Body:</Text>
+                      <Text style={styles.fallbackVal} selectable>{emailBody}</Text>
+                      <TouchableOpacity onPress={() => copyText(emailBody, 'body')} style={styles.copyBtn}>
+                        <Text style={styles.copyBtnText}>{copiedField === 'body' ? '✓ Copied' : 'Copy'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity style={[styles.registerBtn, { marginTop: spacing.md }]} onPress={handleFallbackVerifyAndRegister} disabled={loading}>
+                      {loading ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.registerBtnText}>📨 I Sent the Email — Verify & Register</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             </View>
           )}
 
@@ -409,30 +471,47 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
+    fontSize: 16,
     color: colors.text,
+    minHeight: 44,
+  },
+  codeInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: colors.primary,
+    borderWidth: 2,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 6,
+    textAlign: 'center',
+    color: colors.primary,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginVertical: 10,
   },
   emailInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   emailInputPart: {
     flex: 1,
+    minWidth: 160,
     borderTopRightRadius: 0,
     borderBottomRightRadius: 0,
   },
   domainBadge: {
     backgroundColor: '#E2E8F0',
-    paddingVertical: 11,
+    paddingVertical: 12,
     paddingHorizontal: 10,
     borderTopRightRadius: 8,
     borderBottomRightRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderLeftWidth: 0,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   domainBadgeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: '#4A5568',
   },
@@ -441,7 +520,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: spacing.lg,
+    minHeight: 46,
   },
   registerBtnText: {
     color: '#fff',
@@ -453,6 +534,27 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
+  },
+  fallbackToggleContainer: {
+    marginTop: spacing.md,
+    paddingTop: spacing.xs,
+  },
+  fallbackToggleBtn: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  fallbackToggleBtnText: {
+    color: '#1E3A8A',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   stepBadge: {
     backgroundColor: '#1a2b49',
@@ -479,7 +581,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: spacing.md,
+    justifyContent: 'center',
+    marginVertical: spacing.sm,
+    minHeight: 46,
   },
   openOutlookBtnText: {
     color: '#fff',
