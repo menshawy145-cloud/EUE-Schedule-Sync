@@ -27,6 +27,7 @@ export const LoginScreen = ({ navigation }) => {
   const { login } = useContext(AuthContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -38,6 +39,9 @@ export const LoginScreen = ({ navigation }) => {
   const [forgotCode, setForgotCode] = useState('');
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [showResetConfirmPassword, setShowResetConfirmPassword] = useState(false);
+  const [showForgotFallback, setShowForgotFallback] = useState(false);
   const [forgotMailto, setForgotMailto] = useState('');
   const [forgotTargetEmail, setForgotTargetEmail] = useState('eueschedulesync@gmail.com');
   const [forgotSubject, setForgotSubject] = useState('');
@@ -105,11 +109,12 @@ export const LoginScreen = ({ navigation }) => {
     }
   };
 
-  const handlePerformReset = async () => {
+  const handlePerformReset = async (isReverseFallback = false) => {
     setForgotError('');
     setForgotSuccess('');
 
-    if (!forgotCode.trim() || !/^\d{6}$/.test(forgotCode.trim())) {
+    const code = forgotCode.trim();
+    if (!code || !/^\d{6}$/.test(code)) {
       setForgotError('Please enter a valid 6-digit verification code.');
       return;
     }
@@ -129,8 +134,9 @@ export const LoginScreen = ({ navigation }) => {
       setForgotLoading(true);
       const res = await api.auth.resetPassword({
         email: fullEmail,
-        verification_code: forgotCode.trim(),
+        verification_code: code,
         new_password: forgotNewPassword,
+        is_reverse_fallback: isReverseFallback,
       });
       setForgotSuccess(res.message || 'Password reset successfully!');
       setEmail(fullEmail);
@@ -140,10 +146,11 @@ export const LoginScreen = ({ navigation }) => {
         setForgotNewPassword('');
         setForgotConfirmPassword('');
         setForgotCode('');
+        setShowForgotFallback(false);
         Alert.alert('Password Reset', 'Your password has been reset successfully. Please sign in with your new password.');
       }, 1200);
     } catch (err) {
-      setForgotError(err.message || 'Password reset failed. Make sure you sent the verification email from your university Outlook.');
+      setForgotError(err.message || 'Password reset failed. Please check your verification code.');
     } finally {
       setForgotLoading(false);
     }
@@ -178,31 +185,43 @@ export const LoginScreen = ({ navigation }) => {
             keyboardType="email-address"
           />
 
-          <View style={styles.passwordLabelRow}>
-            <Text style={styles.label}>Password</Text>
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="••••••••"
+              placeholderTextColor={colors.textSecondary}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showLoginPassword}
+              autoCapitalize="none"
+            />
             <TouchableOpacity
-              onPress={() => {
-                setForgotModalVisible(true);
-                setForgotStep(1);
-                setForgotError('');
-                setForgotSuccess('');
-                setForgotEmailInput(email.trim().split('@')[0] || '');
-              }}
+              style={styles.passwordToggleBtn}
+              onPress={() => setShowLoginPassword((prev) => !prev)}
+              accessibilityLabel={showLoginPassword ? 'Hide password' : 'Show password'}
             >
-              <Text style={styles.forgotLink}>Forgot Password?</Text>
+              <Text style={styles.passwordToggleText}>{showLoginPassword ? '🙈 Hide' : '👁 Show'}</Text>
             </TouchableOpacity>
           </View>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor={colors.textSecondary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
 
           <TouchableOpacity style={styles.loginBtn} onPress={handleLogin} disabled={loading}>
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.loginBtnText}>Sign In</Text>}
+          </TouchableOpacity>
+
+          {/* Forgot Password link placed right below the Sign In button */}
+          <TouchableOpacity
+            style={styles.forgotPasswordBtn}
+            onPress={() => {
+              setForgotModalVisible(true);
+              setForgotStep(1);
+              setForgotError('');
+              setForgotSuccess('');
+              setForgotEmailInput(email.trim().split('@')[0] || '');
+              setShowForgotFallback(false);
+            }}
+          >
+            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => navigation.navigate('Register')} style={styles.switchAuth}>
@@ -226,7 +245,7 @@ export const LoginScreen = ({ navigation }) => {
               <View>
                 <Text style={styles.modalTitle}>🔑 Reset Password</Text>
                 <Text style={styles.modalSubtitle}>
-                  {forgotStep === 1 ? 'Step 1: Enter University Email' : 'Step 2: Outlook Verification & New Password'}
+                  {forgotStep === 1 ? 'Step 1: Enter University Email' : 'Step 2: Enter Verification Code & New Password'}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setForgotModalVisible(false)} style={styles.modalCloseBtn}>
@@ -280,7 +299,7 @@ export const LoginScreen = ({ navigation }) => {
                 </View>
 
                 <Text style={styles.modalHint}>
-                  We will generate a secure reset code linked to your university Outlook inbox.
+                  We will send a 6-digit password reset code directly to your university Outlook inbox.
                 </Text>
 
                 <TouchableOpacity
@@ -291,82 +310,165 @@ export const LoginScreen = ({ navigation }) => {
                   {forgotLoading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.modalPrimaryBtnText}>Send Reset Code →</Text>
+                    <Text style={styles.modalPrimaryBtnText}>✉️ Send Reset Code →</Text>
                   )}
                 </TouchableOpacity>
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: 420 }}>
-                {/* Step 2: Outlook Verification */}
-                <View style={styles.codeHighlightBox}>
-                  <Text style={styles.codeLabel}>YOUR 6-DIGIT RESET CODE</Text>
-                  <Text style={styles.codeText}>{forgotCode}</Text>
-                  <TouchableOpacity
-                    style={styles.copySmallBtn}
-                    onPress={() => copyText(forgotCode, 'code')}
-                  >
-                    <Text style={styles.copySmallText}>
-                      {copiedField === 'code' ? '✓ Copied' : 'Copy Code'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {forgotMailto ? (
-                  <TouchableOpacity
-                    style={styles.outlookBtn}
-                    onPress={() => Linking.openURL(forgotMailto)}
-                  >
-                    <Text style={styles.outlookBtnText}>📧 Open University Outlook App</Text>
-                  </TouchableOpacity>
-                ) : null}
-
-                <View style={styles.reverseVerifyGuide}>
-                  <Text style={styles.guideStep}>
-                    1. Tap the button above to launch your university Outlook.
-                  </Text>
-                  <Text style={styles.guideStep}>
-                    2. Hit <Text style={{ fontWeight: '800' }}>Send</Text> to dispatch the verification code to <Text style={{ fontFamily: 'monospace', fontWeight: '700' }}>{forgotTargetEmail}</Text>.
-                  </Text>
-                  <Text style={styles.guideStep}>
-                    3. Enter your new password below and tap <Text style={{ fontWeight: '800' }}>Confirm Reset</Text>.
+              <ScrollView style={{ maxHeight: 440 }}>
+                <View style={styles.stepInfoBox}>
+                  <Text style={styles.stepInfoText}>
+                    ✉️ We sent a 6-digit reset code to <Text style={{ fontWeight: '700' }}>{buildForgotValidatedEmail()}</Text>. Check your Outlook inbox (and junk/spam folder) and enter it below:
                   </Text>
                 </View>
 
-                <Text style={styles.label}>New Password</Text>
+                <Text style={styles.label}>6-Digit Verification Code</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="At least 6 characters"
+                  style={[styles.input, styles.codeInput]}
+                  placeholder="123456"
                   placeholderTextColor={colors.textSecondary}
-                  value={forgotNewPassword}
-                  onChangeText={setForgotNewPassword}
-                  secureTextEntry
+                  value={forgotCode}
+                  onChangeText={setForgotCode}
+                  keyboardType="numeric"
+                  maxLength={6}
+                  autoFocus
                 />
+
+                <Text style={styles.label}>New Password (minimum 6 characters)</Text>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="••••••••"
+                    placeholderTextColor={colors.textSecondary}
+                    value={forgotNewPassword}
+                    onChangeText={setForgotNewPassword}
+                    secureTextEntry={!showResetPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggleBtn}
+                    onPress={() => setShowResetPassword((prev) => !prev)}
+                    accessibilityLabel={showResetPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <Text style={styles.passwordToggleText}>{showResetPassword ? '🙈 Hide' : '👁 Show'}</Text>
+                  </TouchableOpacity>
+                </View>
 
                 <Text style={styles.label}>Confirm New Password</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Re-enter new password"
-                  placeholderTextColor={colors.textSecondary}
-                  value={forgotConfirmPassword}
-                  onChangeText={setForgotConfirmPassword}
-                  secureTextEntry
-                />
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="••••••••"
+                    placeholderTextColor={colors.textSecondary}
+                    value={forgotConfirmPassword}
+                    onChangeText={setForgotConfirmPassword}
+                    secureTextEntry={!showResetConfirmPassword}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggleBtn}
+                    onPress={() => setShowResetConfirmPassword((prev) => !prev)}
+                    accessibilityLabel={showResetConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  >
+                    <Text style={styles.passwordToggleText}>{showResetConfirmPassword ? '🙈 Hide' : '👁 Show'}</Text>
+                  </TouchableOpacity>
+                </View>
 
                 <TouchableOpacity
                   style={styles.modalPrimaryBtn}
-                  onPress={handlePerformReset}
+                  onPress={() => handlePerformReset(false)}
                   disabled={forgotLoading}
                 >
                   {forgotLoading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.modalPrimaryBtnText}>I Sent the Email — Reset Password</Text>
+                    <Text style={styles.modalPrimaryBtnText}>🔑 Reset Password</Text>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  style={styles.resendBtn}
+                  onPress={handleRequestResetCode}
+                  disabled={forgotLoading}
+                >
+                  <Text style={styles.resendBtnText}>🔄 Resend Code to University Email</Text>
+                </TouchableOpacity>
+
+                {/* Secondary Fallback: Verify by sending from Outlook */}
+                <View style={styles.fallbackToggleContainer}>
+                  <TouchableOpacity
+                    style={styles.fallbackToggleBtn}
+                    onPress={() => setShowForgotFallback((prev) => !prev)}
+                  >
+                    <Text style={styles.fallbackToggleBtnText}>
+                      {showForgotFallback ? '▲ Hide Outlook Fallback' : "✉️ Didn't receive the email? Verify by sending from Outlook instead ▾"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {showForgotFallback && (
+                    <View style={styles.fallbackBox}>
+                      <Text style={styles.fallbackTitle}>
+                        If university spam filters delay incoming emails, you can verify instantly by sending an email from your university Outlook:
+                      </Text>
+
+                      {forgotMailto ? (
+                        <TouchableOpacity
+                          style={styles.openOutlookBtn}
+                          onPress={() => {
+                            Linking.openURL(forgotMailto).catch(() => {
+                              setForgotError('Could not open mail app. Please copy the details below and send manually.');
+                            });
+                          }}
+                        >
+                          <Text style={styles.openOutlookBtnText}>✉️ Open EUE Outlook & Send Email</Text>
+                        </TouchableOpacity>
+                      ) : null}
+
+                      <View style={styles.fallbackRow}>
+                        <Text style={styles.fallbackLabel}>To:</Text>
+                        <Text style={styles.fallbackVal} selectable>{forgotTargetEmail}</Text>
+                        <TouchableOpacity onPress={() => copyText(forgotTargetEmail, 'to')} style={styles.copyBtn}>
+                          <Text style={styles.copyBtnText}>{copiedField === 'to' ? '✓ Copied' : 'Copy'}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.fallbackRow}>
+                        <Text style={styles.fallbackLabel}>Subject:</Text>
+                        <Text style={styles.fallbackVal} selectable>{forgotSubject}</Text>
+                        <TouchableOpacity onPress={() => copyText(forgotSubject, 'sub')} style={styles.copyBtn}>
+                          <Text style={styles.copyBtnText}>{copiedField === 'sub' ? '✓ Copied' : 'Copy'}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.fallbackRow}>
+                        <Text style={styles.fallbackLabel}>Body:</Text>
+                        <Text style={styles.fallbackVal} selectable>{forgotBody}</Text>
+                        <TouchableOpacity onPress={() => copyText(forgotBody, 'body')} style={styles.copyBtn}>
+                          <Text style={styles.copyBtnText}>{copiedField === 'body' ? '✓ Copied' : 'Copy'}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.modalPrimaryBtn, { marginTop: spacing.md }]}
+                        onPress={() => handlePerformReset(true)}
+                        disabled={forgotLoading}
+                      >
+                        {forgotLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={styles.modalPrimaryBtnText}>📨 I Sent the Email — Reset Password</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                <TouchableOpacity
                   style={styles.backStepBtn}
-                  onPress={() => setForgotStep(1)}
+                  onPress={() => {
+                    setForgotStep(1);
+                    setShowForgotFallback(false);
+                  }}
                   disabled={forgotLoading}
                 >
                   <Text style={styles.backStepText}>← Change Email / Request New Code</Text>
@@ -415,8 +517,6 @@ const styles = StyleSheet.create({
   },
   errorText: { color: '#B91C1C', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   label: { fontSize: 13, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.xs },
-  passwordLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs },
-  forgotLink: { fontSize: 12, fontWeight: '700', color: colors.accent },
   input: {
     backgroundColor: colors.inputBg,
     borderRadius: 8,
@@ -425,6 +525,34 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.md,
     minHeight: 46,
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.inputBg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+    minHeight: 46,
+  },
+  passwordInput: {
+    flex: 1,
+    padding: spacing.md,
+    fontSize: 16,
+    color: colors.textPrimary,
+  },
+  passwordToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 42,
+  },
+  passwordToggleText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.accent,
   },
   loginBtn: {
     backgroundColor: colors.primary,
@@ -436,6 +564,17 @@ const styles = StyleSheet.create({
     minHeight: 46,
   },
   loginBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  forgotPasswordBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  forgotPasswordText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.accent,
+  },
   switchAuth: { marginTop: spacing.md, alignItems: 'center' },
   switchText: { fontSize: 13, color: colors.textSecondary },
   switchHighlight: { color: colors.accent, fontWeight: '700' },
@@ -461,15 +600,34 @@ const styles = StyleSheet.create({
   modalHint: { fontSize: 12, color: colors.textSecondary, marginBottom: spacing.md, lineHeight: 16 },
   modalPrimaryBtn: { backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', marginVertical: spacing.sm, minHeight: 46 },
   modalPrimaryBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  codeHighlightBox: { backgroundColor: '#F1F5F9', borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: spacing.md },
-  codeLabel: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, letterSpacing: 1, marginBottom: 4 },
-  codeText: { fontSize: 32, fontWeight: '800', letterSpacing: 6, color: colors.primary, fontFamily: 'monospace', marginVertical: 4 },
-  copySmallBtn: { marginTop: 6, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, minHeight: 36, justifyContent: 'center' },
-  copySmallText: { fontSize: 11, fontWeight: '700', color: colors.textPrimary },
-  outlookBtn: { backgroundColor: '#0078D4', borderRadius: 8, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, minHeight: 46 },
-  outlookBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  reverseVerifyGuide: { backgroundColor: '#F0FDF4', borderColor: '#86EFAC', borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: spacing.md },
-  guideStep: { fontSize: 12, color: '#166534', lineHeight: 18, marginBottom: 4 },
-  backStepBtn: { alignItems: 'center', paddingVertical: 8, marginTop: 4 },
+  stepInfoBox: { backgroundColor: '#ECFDF5', borderColor: '#10B981', borderWidth: 1, borderRadius: 8, padding: 10, marginBottom: spacing.md },
+  stepInfoText: { color: '#047857', fontSize: 12, fontWeight: '500', lineHeight: 18, textAlign: 'center' },
+  codeInput: {
+    backgroundColor: '#FFFFFF',
+    borderColor: colors.primary,
+    borderWidth: 2,
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 6,
+    textAlign: 'center',
+    color: colors.primary,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginVertical: 6,
+  },
+  resendBtn: { alignItems: 'center', paddingVertical: 8, marginTop: 2 },
+  resendBtnText: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  fallbackToggleContainer: { marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
+  fallbackToggleBtn: { paddingVertical: 8, alignItems: 'center' },
+  fallbackToggleBtnText: { fontSize: 12, fontWeight: '700', color: '#0078D4', textAlign: 'center' },
+  fallbackBox: { marginTop: spacing.sm, backgroundColor: '#F8FAFC', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#CBD5E1' },
+  fallbackTitle: { fontSize: 11, color: colors.textSecondary, marginBottom: 8, lineHeight: 16 },
+  openOutlookBtn: { backgroundColor: '#0078D4', borderRadius: 8, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 10, minHeight: 42 },
+  openOutlookBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  fallbackRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 6, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 8, paddingVertical: 6, marginBottom: 6 },
+  fallbackLabel: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, width: 55 },
+  fallbackVal: { flex: 1, fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: colors.textPrimary },
+  copyBtn: { backgroundColor: '#EDF2F7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, minHeight: 28, justifyContent: 'center' },
+  copyBtnText: { fontSize: 10, fontWeight: '700', color: colors.accent },
+  backStepBtn: { alignItems: 'center', paddingVertical: 8, marginTop: 6 },
   backStepText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
 });

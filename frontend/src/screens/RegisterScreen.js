@@ -29,6 +29,8 @@ export const RegisterScreen = ({ navigation }) => {
   const [emailInput, setEmailInput] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
 
   // Email Verification States
   const [codeSent, setCodeSent] = useState(false);
@@ -258,24 +260,44 @@ export const RegisterScreen = ({ navigation }) => {
           </View>
 
           <Text style={styles.label}>Password (minimum 6 characters)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor={colors.textSecondary}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="••••••••"
+              placeholderTextColor={colors.textSecondary}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showRegisterPassword}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              style={styles.passwordToggleBtn}
+              onPress={() => setShowRegisterPassword((prev) => !prev)}
+              accessibilityLabel={showRegisterPassword ? 'Hide password' : 'Show password'}
+            >
+              <Text style={styles.passwordToggleText}>{showRegisterPassword ? '🙈 Hide' : '👁 Show'}</Text>
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.label}>Confirm Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor={colors.textSecondary}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="••••••••"
+              placeholderTextColor={colors.textSecondary}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showRegisterConfirmPassword}
+              autoCapitalize="none"
+            />
+            <TouchableOpacity
+              style={styles.passwordToggleBtn}
+              onPress={() => setShowRegisterConfirmPassword((prev) => !prev)}
+              accessibilityLabel={showRegisterConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+            >
+              <Text style={styles.passwordToggleText}>{showRegisterConfirmPassword ? '🙈 Hide' : '👁 Show'}</Text>
+            </TouchableOpacity>
+          </View>
 
           {!codeSent ? (
             <TouchableOpacity style={styles.sendCodeBtn} onPress={handleSendVerificationCode} disabled={loading}>
@@ -474,6 +496,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.text,
     minHeight: 44,
+  },
+  passwordInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F7FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    minHeight: 44,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: colors.text,
+  },
+  passwordToggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 42,
+  },
+  passwordToggleText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.accent,
   },
   codeInput: {
     backgroundColor: '#FFFFFF',

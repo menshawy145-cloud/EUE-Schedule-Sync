@@ -156,6 +156,7 @@ class ResetPasswordRequest(BaseModel):
     email: EmailStr
     verification_code: str
     new_password: str
+    is_reverse_fallback: Optional[bool] = False
     honeypot: Optional[str] = ""
 
     class Config:

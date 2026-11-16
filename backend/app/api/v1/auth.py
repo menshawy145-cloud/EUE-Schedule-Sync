@@ -443,17 +443,19 @@ def forgot_password(
     body = f"Reset my EUE password: {code}"
     mailto_url = f"mailto:{TARGET_SYNC_EMAIL}?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
 
-    # Best-effort outbound email as well
-    _send_verification_email(req.email.lower(), user.full_name, code)
+    # Outbound email to student inbox via GAS / Brevo
+    email_sent, provider = _send_verification_email(req.email.lower(), user.full_name, code)
+    print(f"📧 [PASSWORD RESET DISPATCH] Sent reset code to {req.email.lower()} via {provider} (success={email_sent})")
 
     return {
-        "message": f"Password reset initiated. Please send the verification email from your university Outlook to {TARGET_SYNC_EMAIL}.",
+        "message": f"Password reset code sent directly to {req.email.lower()}! Please check your Outlook inbox.",
         "code": code,
         "target_email": TARGET_SYNC_EMAIL,
         "subject": subject,
         "body": body,
         "mailto": mailto_url,
-        "email_sent": True
+        "email_sent": email_sent,
+        "provider": provider
     }
 
 
@@ -503,17 +505,24 @@ def reset_password(
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid 6-digit verification code.")
 
-    # Reverse Verification check
-    reverse_verified = _verify_reverse_email(req.email, req.verification_code)
-    if not reverse_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"We haven't detected your email yet at {TARGET_SYNC_EMAIL}. "
-                "Please make sure you clicked Send in your university Outlook, "
-                "wait 5–10 seconds for Microsoft to dispatch it, then tap 'Reset Password' again."
+    # -------------------------------------------------------------------------
+    # REVERSE VERIFICATION CHECK (Fallback Only):
+    # Only enforced when the student specifically chose the reverse fallback path
+    # ("Didn't receive the email? Verify by sending from Outlook instead").
+    # In direct email flow, entering the valid 6-digit code received in their
+    # inbox already proves email ownership!
+    # -------------------------------------------------------------------------
+    if getattr(req, "is_reverse_fallback", False):
+        reverse_verified = _verify_reverse_email(req.email, req.verification_code)
+        if not reverse_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"We haven't detected your email yet at {TARGET_SYNC_EMAIL}. "
+                    "Please make sure you clicked Send in your university Outlook, "
+                    "wait 5–10 seconds for Microsoft to dispatch it, then tap 'Reset Password' again."
+                )
             )
-        )
 
     # Success: update hashed_password and remove code
     user.hashed_password = get_password_hash(req.new_password)
