@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { RegisterScreen } from './src/screens/RegisterScreen';
+import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { ScheduleScreen } from './src/screens/ScheduleScreen';
 import { FriendsScreen } from './src/screens/FriendsScreen';
@@ -59,8 +60,11 @@ function LogoutHeaderButton() {
 }
 
 function MainTabs() {
+  const { initialTab } = useContext(AuthContext);
+
   return (
     <Tab.Navigator
+      initialRouteName={initialTab || 'Dashboard'}
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
@@ -79,7 +83,7 @@ function MainTabs() {
 }
 
 function NavigationRoot() {
-  const { user, loading } = useContext(AuthContext);
+  const { user, loading, isNewUser } = useContext(AuthContext);
 
   if (loading) {
     return (
@@ -93,29 +97,33 @@ function NavigationRoot() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <>
-            <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen
-              name="FriendSchedule"
-              component={FriendScheduleScreen}
-              options={({ navigation }) => ({
-                headerShown: true,
-                title: "Friend's Schedule",
-                headerStyle: { backgroundColor: colors.primary },
-                headerTintColor: '#fff',
-                headerTitleStyle: { fontWeight: '700' },
-                headerLeft: () => (
-                  <TouchableOpacity
-                    onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MainTabs'))}
-                    style={{ paddingRight: 12, paddingVertical: 6 }}
-                    accessibilityLabel="Go Back"
-                  >
-                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>← Back</Text>
-                  </TouchableOpacity>
-                ),
-              })}
-            />
-          </>
+          isNewUser ? (
+            <Stack.Screen name="Welcome" component={WelcomeScreen} />
+          ) : (
+            <>
+              <Stack.Screen name="MainTabs" component={MainTabs} />
+              <Stack.Screen
+                name="FriendSchedule"
+                component={FriendScheduleScreen}
+                options={({ navigation }) => ({
+                  headerShown: true,
+                  title: "Friend's Schedule",
+                  headerStyle: { backgroundColor: colors.primary },
+                  headerTintColor: '#fff',
+                  headerTitleStyle: { fontWeight: '700' },
+                  headerLeft: () => (
+                    <TouchableOpacity
+                      onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MainTabs'))}
+                      style={{ paddingRight: 12, paddingVertical: 6 }}
+                      accessibilityLabel="Go Back"
+                    >
+                      <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>← Back</Text>
+                    </TouchableOpacity>
+                  ),
+                })}
+              />
+            </>
+          )
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
